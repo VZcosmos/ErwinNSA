@@ -1,0 +1,25 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_a100
+#SBATCH --gpus=1
+#SBATCH --job-name=run
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=9
+#SBATCH --time=01:00:00
+#SBATCH --output=slurm_output_%A.out
+
+module purge
+module load 2024
+module load Anaconda3/2024.06-1
+
+cd erwin
+source erwin/bin/activate
+cd ..
+cd native-sparse-attention-pytorch
+
+# install pip into erwin env, then install NSA
+/gpfs/home5/scur2687/erwin/erwin/bin/python -m ensurepip --upgrade
+/gpfs/home5/scur2687/erwin/erwin/bin/python -m pip install native-sparse-attention-pytorch
+
+# test usage
+python usage.py
