@@ -67,7 +67,7 @@ def monitor_runtime_memory(fit_func):
                 f"Peak GPU Memory Allocated during execution: {peak_memory_gb:.4f} GB"
             )
         else:
-            print(f"Peak GPU Memory Allocated: N/A (CPU execution)")
+            print("Peak GPU Memory Allocated: N/A (CPU execution)")
         print("-" * 25)
 
         # Return the original function's result, if any

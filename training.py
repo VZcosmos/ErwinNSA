@@ -4,6 +4,8 @@ import time
 import os
 from tqdm import tqdm
 
+from utils import monitor_runtime_memory
+
 
 def setup_wandb_logging(model, config, project_name="ballformer"):
     wandb.init(project=project_name, config=config, name=config["model"] + '_' + config["experiment"])
@@ -91,6 +93,7 @@ def validate(model, val_loader, config):
     return avg_stats
 
 
+@monitor_runtime_memory
 def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_loader=None, timing_window_start=100, timing_window_size=500):
     if config.get("use_wandb", False):
         setup_wandb_logging(model, config)
