@@ -9,8 +9,6 @@ import os
 from tqdm import tqdm
 from torchtnt.utils.flops import FlopTensorDispatchMode
 
-from utils import monitor_runtime_memory
-
 
 def setup_wandb_logging(model, config, project_name="ballformer"):
     wandb.init(project=project_name, config=config, name=config["model"] + '_' + config["experiment"])
@@ -142,7 +140,6 @@ def benchmark_flops(model, data_loader, config):
             print(f"Backward FLOPs: {total_flops_backward}")
 
 
-@monitor_runtime_memory
 def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_loader=None, timing_window_start=100, timing_window_size=500):
     if config.get("use_wandb", False):
         setup_wandb_logging(model, config)
@@ -153,6 +150,16 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
     global_step = 0
     best_val_loss = float('inf')
     max_steps = config["num_epochs"]
+
+    start_time = time.time()
+    peak_memory_gb = "N/A"  # Default value if not using CUDA
+
+    # Memory Measurement Setup (Peak GPU Memory)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if device.type == "cuda":
+        # Reset peak memory stats for the target device before the function call
+        torch.cuda.reset_peak_memory_stats(device)
+        memory_before_gb = torch.cuda.memory_allocated(device) / (1024**3)
 
     benchmark_flops(model, train_loader)
 
@@ -236,4 +243,37 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
             loss_keys = [k for k in test_stats.keys() if "loss" in k]
             for k in loss_keys:
                 print(f"Test {k}: {test_stats[k]:.4f}")
+
+    # --- Finalize Measurements & Report ---
+    end_time = time.time()
+    runtime_seconds = end_time - start_time
+
+    # Memory Measurement Finalization (Peak GPU Memory)
+    if device.type == "cuda":
+        # Get peak memory allocated during the function call [[3]]
+        peak_memory_bytes = torch.cuda.max_memory_allocated(device)
+        peak_memory_gb = peak_memory_bytes / (1024**3)
+        memory_after_gb = torch.cuda.memory_allocated(device) / (1024**3)
+        print(
+            f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
+        )
+
+    if config.get("use_wandb", False):
+        wandb.log({"stats/runtime": runtime_seconds}, step=0)
+        wandb.log({"stats/peak_gpu_memory": peak_memory_gb}, step=0)
+        wandb.log({"stats/before_gpu_memory": memory_before_gb}, step=0)
+        wandb.log({"stats/after_gpu_memory": memory_after_gb}, step=0)
+    else:
+        print("\n--- Monitoring Results ---")
+        print(f"Total Runtime: {runtime_seconds:.2f} seconds")
+        print(
+            f"Peak GPU Memory Allocated during execution: {peak_memory_gb:.4f} GB"
+        )
+        print(
+            f"GPU Memory allocated before: {memory_before_gb:.4f} GB"
+        )
+        print(
+            f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
+        )
+
     return model
