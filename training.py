@@ -1,8 +1,13 @@
+import copy
+
+from collections import defaultdict
+
 import wandb
 import torch
 import time
 import os
 from tqdm import tqdm
+from torchtnt.utils.flops import FlopTensorDispatchMode
 
 from utils import monitor_runtime_memory
 
@@ -92,6 +97,50 @@ def validate(model, val_loader, config):
     avg_stats = {f"avg/{k}": v / num_batches for k, v in val_stats.items()}
     return avg_stats
 
+def get_leaf_values(nested_dict):
+    """
+    Recursively traverses a nested dictionary (including defaultdict)
+    and collects all non-dictionary values (leaves).
+    """
+    leaf_values = []
+    # Iterate through the values of the current dictionary level
+    for value in nested_dict.values():
+        # Check if the value is another dictionary or defaultdict
+        if isinstance(value, (dict, defaultdict)):
+            # If it is, recurse deeper and extend the list with results
+            leaf_values.extend(get_leaf_values(value))
+        else:
+            # If it's not a dictionary, it's a leaf value, add it to the list
+            leaf_values.append(value)
+    return leaf_values
+
+
+def benchmark_flops(model, data_loader, config):
+    """
+    Calculate the number of FLOPs for the model.
+    """
+    # Create a copy of the model to avoid modifying the original model
+    model_copy = model.__class__(**model.config)
+    sample_batch = next(iter(data_loader))
+
+    with FlopTensorDispatchMode(model_copy) as ftdm:
+        res = model(sample_batch).mean()
+        flops_forward = copy.deepcopy(ftdm.flop_counts)
+        total_forward_flops = sum(get_leaf_values(flops_forward))
+
+        # reset count before counting backward flops
+        ftdm.reset()
+        res.backward()
+        flops_backward = copy.deepcopy(ftdm.flop_counts)
+        total_flops_backward = sum(get_leaf_values(flops_backward))
+        
+        if config.get("use_wandb", False):
+            wandb.log({"stats/forward_flops": total_forward_flops}, step=0)
+            wandb.log({"stats/backward_flops": total_flops_backward}, step=0)
+        else:
+            print(f"Forward FLOPs: {total_forward_flops}")
+            print(f"Backward FLOPs: {total_flops_backward}")
+
 
 @monitor_runtime_memory
 def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_loader=None, timing_window_start=100, timing_window_size=500):
@@ -104,7 +153,9 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
     global_step = 0
     best_val_loss = float('inf')
     max_steps = config["num_epochs"]
-    
+
+    benchmark_flops(model, train_loader)
+
     while global_step < max_steps:
         iterator = tqdm(train_loader, desc=f"Training (step {global_step + 1}/{max_steps})") if use_tqdm else train_loader
         for batch in iterator:
