@@ -18,8 +18,8 @@ cd ..
 cd native-sparse-attention-pytorch
 
 # install pip into erwin env, then install NSA
-/gpfs/home5/scur2687/erwin/erwin/bin/python -m ensurepip --upgrade
-/gpfs/home5/scur2687/erwin/erwin/bin/python -m pip install native-sparse-attention-pytorch
+# /gpfs/home5/scur2687/erwin/erwin/bin/python -m ensurepip --upgrade
+# /gpfs/home5/scur2687/erwin/erwin/bin/python -m pip install native-sparse-attention-pytorch
 
 # test usage
 python usage.py
