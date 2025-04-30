@@ -1,8 +1,13 @@
+import copy
+
+from collections import defaultdict
+
 import wandb
 import torch
 import time
 import os
 from tqdm import tqdm
+from torchtnt.utils.flops import FlopTensorDispatchMode
 
 
 def setup_wandb_logging(model, config, project_name="ballformer"):
@@ -90,6 +95,50 @@ def validate(model, val_loader, config):
     avg_stats = {f"avg/{k}": v / num_batches for k, v in val_stats.items()}
     return avg_stats
 
+def get_leaf_values(nested_dict):
+    """
+    Recursively traverses a nested dictionary (including defaultdict)
+    and collects all non-dictionary values (leaves).
+    """
+    leaf_values = []
+    # Iterate through the values of the current dictionary level
+    for value in nested_dict.values():
+        # Check if the value is another dictionary or defaultdict
+        if isinstance(value, (dict, defaultdict)):
+            # If it is, recurse deeper and extend the list with results
+            leaf_values.extend(get_leaf_values(value))
+        else:
+            # If it's not a dictionary, it's a leaf value, add it to the list
+            leaf_values.append(value)
+    return leaf_values
+
+
+def benchmark_flops(model, data_loader, config):
+    """
+    Calculate the number of FLOPs for the model.
+    """
+    # Create a copy of the model to avoid modifying the original model
+    model_copy = model.__class__(**model.config)
+    sample_batch = next(iter(data_loader))
+
+    with FlopTensorDispatchMode(model_copy) as ftdm:
+        res = model(sample_batch).mean()
+        flops_forward = copy.deepcopy(ftdm.flop_counts)
+        total_forward_flops = sum(get_leaf_values(flops_forward))
+
+        # reset count before counting backward flops
+        ftdm.reset()
+        res.backward()
+        flops_backward = copy.deepcopy(ftdm.flop_counts)
+        total_flops_backward = sum(get_leaf_values(flops_backward))
+        
+        if config.get("use_wandb", False):
+            wandb.log({"stats/forward_flops": total_forward_flops}, step=0)
+            wandb.log({"stats/backward_flops": total_flops_backward}, step=0)
+        else:
+            print(f"Forward FLOPs: {total_forward_flops}")
+            print(f"Backward FLOPs: {total_flops_backward}")
+
 
 def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_loader=None, timing_window_start=100, timing_window_size=500):
     if config.get("use_wandb", False):
@@ -101,7 +150,19 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
     global_step = 0
     best_val_loss = float('inf')
     max_steps = config["num_epochs"]
-    
+
+    start_time = time.time()
+    peak_memory_gb = "N/A"  # Default value if not using CUDA
+
+    # Memory Measurement Setup (Peak GPU Memory)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if device.type == "cuda":
+        # Reset peak memory stats for the target device before the function call
+        torch.cuda.reset_peak_memory_stats(device)
+        memory_before_gb = torch.cuda.memory_allocated(device) / (1024**3)
+
+    benchmark_flops(model, train_loader)
+
     while global_step < max_steps:
         iterator = tqdm(train_loader, desc=f"Training (step {global_step + 1}/{max_steps})") if use_tqdm else train_loader
         for batch in iterator:
@@ -182,4 +243,37 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
             loss_keys = [k for k in test_stats.keys() if "loss" in k]
             for k in loss_keys:
                 print(f"Test {k}: {test_stats[k]:.4f}")
+
+    # --- Finalize Measurements & Report ---
+    end_time = time.time()
+    runtime_seconds = end_time - start_time
+
+    # Memory Measurement Finalization (Peak GPU Memory)
+    if device.type == "cuda":
+        # Get peak memory allocated during the function call [[3]]
+        peak_memory_bytes = torch.cuda.max_memory_allocated(device)
+        peak_memory_gb = peak_memory_bytes / (1024**3)
+        memory_after_gb = torch.cuda.memory_allocated(device) / (1024**3)
+        print(
+            f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
+        )
+
+    if config.get("use_wandb", False):
+        wandb.log({"stats/runtime": runtime_seconds}, step=0)
+        wandb.log({"stats/peak_gpu_memory": peak_memory_gb}, step=0)
+        wandb.log({"stats/before_gpu_memory": memory_before_gb}, step=0)
+        wandb.log({"stats/after_gpu_memory": memory_after_gb}, step=0)
+    else:
+        print("\n--- Monitoring Results ---")
+        print(f"Total Runtime: {runtime_seconds:.2f} seconds")
+        print(
+            f"Peak GPU Memory Allocated during execution: {peak_memory_gb:.4f} GB"
+        )
+        print(
+            f"GPU Memory allocated before: {memory_before_gb:.4f} GB"
+        )
+        print(
+            f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
+        )
+
     return model
