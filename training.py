@@ -149,27 +149,19 @@ def benchmark_flops(model, data_loader, config):
     """
     Calculate the number of FLOPs for the model.
     """
-    # Create a copy of the model to avoid modifying the original model
-    model_copy = model.__class__(**model.config)
     sample_batch = next(iter(data_loader))
+    sample_batch = {k: v.cuda() for k, v in sample_batch.items()}
 
-    with FlopTensorDispatchMode(model_copy) as ftdm:
-        res = model(sample_batch).mean()
+    with FlopTensorDispatchMode(model) as ftdm:
+        res = model.training_step(sample_batch)["train/loss"]
         flops_forward = copy.deepcopy(ftdm.flop_counts)
         total_forward_flops = sum(get_leaf_values(flops_forward))
-
-        # reset count before counting backward flops
         ftdm.reset()
-        res.backward()
-        flops_backward = copy.deepcopy(ftdm.flop_counts)
-        total_flops_backward = sum(get_leaf_values(flops_backward))
         
         if config.get("use_wandb", False):
             wandb.log({"stats/forward_flops": total_forward_flops}, step=0)
-            wandb.log({"stats/backward_flops": total_flops_backward}, step=0)
         else:
             print(f"Forward FLOPs: {total_forward_flops}")
-            print(f"Backward FLOPs: {total_flops_backward}")
 
 
 def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_loader=None, timing_window_start=100, timing_window_size=500):
@@ -193,7 +185,7 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
         torch.cuda.reset_peak_memory_stats(device)
         memory_before_gb = torch.cuda.memory_allocated(device) / (1024**3)
 
-    # benchmark_flops(model, train_loader)
+    benchmark_flops(model, train_loader, config)
 
     while global_step < max_steps:
         iterator = tqdm(train_loader, desc=f"Training (step {global_step + 1}/{max_steps})") if use_tqdm else train_loader
