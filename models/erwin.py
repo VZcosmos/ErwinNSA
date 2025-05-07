@@ -456,15 +456,15 @@ class BallNSABlock(nn.Module):
         return x + self.swiglu(self.norm2(x))
 
 
-class BasicLayer(nn.Module):
+class BasicNSALayer(nn.Module):
     def __init__(
         self,
-        direction: Literal['down', 'up', None], # down: encoder, up: decoder, None: bottleneck
         depth: int,
-        stride: int,
         dim: int,
         num_heads: int,
-        ball_size: int,
+        compress_ball_size: int,
+        sliding_window_size: int,
+        num_selected_blocks: int,
         mlp_ratio: int,
         rotate: bool,
         dimensionality: int = 3,
@@ -472,20 +472,10 @@ class BasicLayer(nn.Module):
     ):
         super().__init__()
 
-        self.blocks = nn.ModuleList([ErwinTransformerBlock(dim, num_heads, ball_size, mlp_ratio, dimensionality) for _ in range(depth)])
+        self.blocks = nn.ModuleList([BallNSABlock(dim, num_heads, compress_ball_size, sliding_window_size, num_selected_blocks, mlp_ratio, dimensionality) for _ in range(depth)])
         self.rotate = [i % 2 for i in range(depth)] if rotate else [False] * depth
 
-        self.pool = lambda node: node
-        self.unpool = lambda node: node
-
-        if direction == 'down' and stride is not None:
-            self.pool = BallPooling(dim, stride, dimensionality)
-        elif direction == 'up' and stride is not None:
-            self.unpool = BallUnpooling(dim, stride, dimensionality)
-
     def forward(self, node: Node) -> Node:
-        node = self.unpool(node)
-
         if len(self.rotate) > 1 and self.rotate[1]: # if rotation is enabled, it will be used in the second block
             assert node.tree_idx_rot is not None, "tree_idx_rot must be provided for rotation"
             tree_idx_rot_inv = torch.argsort(node.tree_idx_rot) # map from rotated to original
@@ -495,7 +485,7 @@ class BasicLayer(nn.Module):
                 node.x = blk(node.x[node.tree_idx_rot], node.pos[node.tree_idx_rot])[tree_idx_rot_inv]
             else:
                 node.x = blk(node.x, node.pos)
-        return self.pool(node)
+        return node
 
 
 
@@ -530,11 +520,8 @@ class NSABallformer(nn.Module):
         ball_sizes: List,
         enc_num_heads: List,
         enc_depths: List,
-        dec_num_heads: List,
-        dec_depths: List,
         strides: List,
         rotate: int,
-        decode: bool = True,
         mlp_ratio: int = 4,
         dimensionality: int = 3,
         mp_steps: int = 3,
@@ -543,7 +530,6 @@ class NSABallformer(nn.Module):
         assert len(strides) == len(ball_sizes) - 1
         
         self.rotate = rotate
-        self.decode = decode
         self.ball_sizes = ball_sizes
         self.strides = strides
 
