@@ -618,12 +618,4 @@ class NSABallformer(nn.Module):
             node.tree_idx_rot = tree_idx_rot.pop(0)
             node = layer(node)
 
-        node.tree_idx_rot = tree_idx_rot.pop(0)
-        node = self.bottleneck(node)
-
-        if self.decode:
-            for layer in self.decoder:
-                node = layer(node)
-            return node.x[tree_mask][torch.argsort(tree_idx[tree_mask])]
-
         return node.x, node.batch_idx
