@@ -133,7 +133,7 @@ def measure_interaction_batch(model, x, pos, i_s, bs, batch):
 
 def evaluate_interactions_from_batch(model, batch, config, i_s=None):
     batch = {k: v.cuda() for k, v in batch.items()}
-    print("Batch keys:", batch.keys())
+    # print("Batch keys:", batch.keys())
     node_positions = batch['node_positions']
     node_features = model.pos_enc(node_positions)
     def model_from_node_features(node_feats, *args, **kwargs):

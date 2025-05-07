@@ -11,6 +11,7 @@ from typing import Literal, List
 from dataclasses import dataclass
 
 from balltree import build_balltree_with_rotations
+from native_sparse_attention_pytorch.native_sparse_attention_pytorch.native_sparse_attention_clean import SparseAttention
 
 
 def scatter_mean(src: torch.Tensor, idx: torch.Tensor, num_receivers: int):
@@ -309,6 +310,246 @@ class ErwinTransformer(nn.Module):
         self.embed = ErwinEmbedding(c_in, c_hidden, mp_steps, dimensionality)
 
         num_layers = len(enc_depths) - 1 # last one is a bottleneck
+        num_hidden = [c_hidden] + [c_hidden * math.prod(strides[:i]) for i in range(1, num_layers + 1)]
+        
+        self.encoder = nn.ModuleList()
+        for i in range(num_layers):
+            self.encoder.append(
+                BasicLayer(
+                    direction='down',
+                    depth=enc_depths[i],
+                    stride=strides[i],
+                    dim=num_hidden[i],
+                    num_heads=enc_num_heads[i],
+                    ball_size=ball_sizes[i],
+                    rotate=rotate > 0,
+                    mlp_ratio=mlp_ratio,
+                    dimensionality=dimensionality,
+                )
+            )
+
+        self.bottleneck = BasicLayer(
+            direction=None,
+            depth=enc_depths[-1],
+            stride=None,
+            dim=num_hidden[-1],
+            num_heads=enc_num_heads[-1],
+            ball_size=ball_sizes[-1],
+            rotate=rotate > 0,
+            mlp_ratio=mlp_ratio,
+            dimensionality=dimensionality,
+        )
+
+        if decode:
+            self.decoder = nn.ModuleList()
+            for i in range(num_layers - 1, -1, -1):
+                self.decoder.append(
+                    BasicLayer(
+                        direction='up',
+                        depth=dec_depths[i],
+                        stride=strides[i],
+                        dim=num_hidden[i],
+                        num_heads=dec_num_heads[i],
+                        ball_size=ball_sizes[i],
+                        rotate=rotate > 0,
+                        mlp_ratio=mlp_ratio,
+                        dimensionality=dimensionality,
+                    )
+                )
+
+        self.in_dim = c_in
+        self.out_dim = c_hidden if decode else num_hidden[-1]
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.trunc_normal_(m.weight, mean=0., std=0.02, a=-2., b=2.)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+    
+    def forward(self, node_features: torch.Tensor, node_positions: torch.Tensor, batch_idx: torch.Tensor, edge_index: torch.Tensor = None, tree_idx: torch.Tensor = None, tree_mask: torch.Tensor = None, radius: float = None, **kwargs):
+        with torch.no_grad():
+            # if not given, build the ball tree and radius graph
+            if tree_idx is None and tree_mask is None:
+                tree_idx, tree_mask, tree_idx_rot = build_balltree_with_rotations(node_positions, batch_idx, self.strides, self.ball_sizes, self.rotate)
+            if edge_index is None and self.embed.mp_steps:
+                assert radius is not None, "radius (float) must be provided if edge_index is not given to build radius graph"
+                edge_index = torch_cluster.radius_graph(node_positions, radius, batch=batch_idx, loop=True)
+
+        x = self.embed(node_features, node_positions, edge_index)
+
+        node = Node(
+            x=x[tree_idx],
+            pos=node_positions[tree_idx],
+            batch_idx=batch_idx[tree_idx],
+            tree_idx_rot=None, # will be populated in the encoder
+        )
+
+        for layer in self.encoder:
+            node.tree_idx_rot = tree_idx_rot.pop(0)
+            node = layer(node)
+
+        node.tree_idx_rot = tree_idx_rot.pop(0)
+        node = self.bottleneck(node)
+
+        if self.decode:
+            for layer in self.decoder:
+                node = layer(node)
+            return node.x[tree_mask][torch.argsort(tree_idx[tree_mask])]
+
+        return node.x, node.batch_idx
+
+#####################################################################################
+############################### NSA #################################################
+#####################################################################################
+
+class BallNSA(nn.Module):
+    """ NSA on a ball tree. """
+    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, sliding_window_size: int, num_selected_blocks: int, dimensionality: int = 3):
+        super().__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        self.compress_ball_size = compress_ball_size
+        self.sliding_window_size = sliding_window_size
+
+        self.nsa = SparseAttention(dim, dim//num_heads, num_heads,
+                                   sliding_window_size, compress_ball_size,
+                                   compress_ball_size,
+                                   compress_ball_size, num_selected_blocks)
+        self.qkv = nn.Linear(dim, 3 * dim)
+        self.proj = nn.Linear(dim, dim)
+        self.pe_proj = nn.Linear(dimensionality, dim)
+        self.sigma_att = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))
+
+    @torch.no_grad()
+    def create_attention_mask(self, pos: torch.Tensor):
+        """ Distance-based attention bias (eq. 10). """
+        pos = rearrange(pos, '(n m) d -> n m d', m=self.ball_size)
+        return self.sigma_att * torch.cdist(pos, pos, p=2).unsqueeze(1)
+
+    @torch.no_grad()
+    def compute_rel_pos(self, pos: torch.Tensor):
+        """ Relative position of leafs wrt the center of the ball (eq. 9). """
+        num_balls, dim = pos.shape[0] // self.ball_size, pos.shape[1]
+        pos = pos.view(num_balls, self.ball_size, dim)
+        return (pos - pos.mean(dim=1, keepdim=True)).view(-1, dim)
+
+    def forward(self, x: torch.Tensor, pos: torch.Tensor):
+        x = x + self.pe_proj(self.compute_rel_pos(pos))
+        x = self.NSA(x)
+        return self.proj(x)
+
+
+class BallNSABlock(nn.Module):
+    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, sliding_window_size: int, num_selected_blocks: int, mlp_ratio: int, dimensionality: int = 3):
+        super().__init__()
+        self.norm1 = nn.RMSNorm(dim)
+        self.norm2 = nn.RMSNorm(dim)
+        self.BNSA = BallNSA(dim, num_heads, compress_ball_size, sliding_window_size, num_selected_blocks, dimensionality)
+        self.swiglu = SwiGLU(dim, dim * mlp_ratio)
+
+    def forward(self, x: torch.Tensor, pos: torch.Tensor):
+        x = x + self.BNSA(self.norm1(x), pos)
+        return x + self.swiglu(self.norm2(x))
+
+
+class BasicLayer(nn.Module):
+    def __init__(
+        self,
+        direction: Literal['down', 'up', None], # down: encoder, up: decoder, None: bottleneck
+        depth: int,
+        stride: int,
+        dim: int,
+        num_heads: int,
+        ball_size: int,
+        mlp_ratio: int,
+        rotate: bool,
+        dimensionality: int = 3,
+
+    ):
+        super().__init__()
+
+        self.blocks = nn.ModuleList([ErwinTransformerBlock(dim, num_heads, ball_size, mlp_ratio, dimensionality) for _ in range(depth)])
+        self.rotate = [i % 2 for i in range(depth)] if rotate else [False] * depth
+
+        self.pool = lambda node: node
+        self.unpool = lambda node: node
+
+        if direction == 'down' and stride is not None:
+            self.pool = BallPooling(dim, stride, dimensionality)
+        elif direction == 'up' and stride is not None:
+            self.unpool = BallUnpooling(dim, stride, dimensionality)
+
+    def forward(self, node: Node) -> Node:
+        node = self.unpool(node)
+
+        if len(self.rotate) > 1 and self.rotate[1]: # if rotation is enabled, it will be used in the second block
+            assert node.tree_idx_rot is not None, "tree_idx_rot must be provided for rotation"
+            tree_idx_rot_inv = torch.argsort(node.tree_idx_rot) # map from rotated to original
+
+        for rotate, blk in zip(self.rotate, self.blocks):
+            if rotate:
+                node.x = blk(node.x[node.tree_idx_rot], node.pos[node.tree_idx_rot])[tree_idx_rot_inv]
+            else:
+                node.x = blk(node.x, node.pos)
+        return self.pool(node)
+
+
+
+
+class NSABallformer(nn.Module):
+    """ 
+    Erwin Transformer without U-net and with Native Sparse Attention on ball tree.
+
+    Args:
+        c_in (int): number of input channels.
+        c_hidden (int): number of hidden channels. With every layer, the number of channels is multiplied by stride.
+        ball_size (List): list of ball sizes for each encoder layer (reverse for decoder).
+        enc_num_heads (List): list of number of heads for each encoder layer.
+        enc_depths (List): list of number of ErwinTransformerBlock layers for each encoder layer.
+        dec_num_heads (List): list of number of heads for each decoder layer.
+        dec_depths (List): list of number of ErwinTransformerBlock layers for each decoder layer.
+        strides (List): list of strides for each encoder layer (reverse for decoder).
+        rotate (int): angle of rotation for cross-ball interactions; if 0, no rotation.
+        decode (bool): whether to decode or not. If not, returns latent representation at the coarsest level.
+        mlp_ratio (int): ratio of SWIGLU's hidden dim to a layer's hidden dim.
+        dimensionality (int): dimensionality of the input data.
+        mp_steps (int): number of message passing steps in the MPNN Embedding.
+
+    Notes:
+        - lengths of ball_size, enc_num_heads, enc_depths must be the same N (as it includes encoder and bottleneck).
+        - lengths of strides, dec_num_heads, dec_depths must be N - 1.
+    """
+    def __init__(
+        self,
+        c_in: int,
+        c_hidden: int,
+        ball_sizes: List,
+        enc_num_heads: List,
+        enc_depths: List,
+        dec_num_heads: List,
+        dec_depths: List,
+        strides: List,
+        rotate: int,
+        decode: bool = True,
+        mlp_ratio: int = 4,
+        dimensionality: int = 3,
+        mp_steps: int = 3,
+    ):
+        super().__init__()
+        assert len(strides) == len(ball_sizes) - 1
+        
+        self.rotate = rotate
+        self.decode = decode
+        self.ball_sizes = ball_sizes
+        self.strides = strides
+
+        self.embed = ErwinEmbedding(c_in, c_hidden, mp_steps, dimensionality)
+
+       # num_layers = len(enc_depths) - 1 # last one is a bottleneck
         num_hidden = [c_hidden] + [c_hidden * math.prod(strides[:i]) for i in range(1, num_layers + 1)]
         
         self.encoder = nn.ModuleList()
