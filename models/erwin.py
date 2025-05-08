@@ -440,14 +440,14 @@ class BallNSA(nn.Module):
     def forward(self, x: torch.Tensor, pos: torch.Tensor):
         # to be returned after we modify nsa
         # x = x + self.pe_proj(self.compute_rel_pos(pos))
-        print(f'input to NSA shape: {x.shape}')
+        # print(f'input to NSA shape: {x.shape}')
         if x.ndim == 2:
             x = x.unsqueeze(0)
             x = self.nsa(x)
             x = x.squeeze(0)
         else:
             x = self.nsa(x)
-        print(f'output from NSA shape: {x.shape}')
+        # print(f'output from NSA shape: {x.shape}')
         return x
 
 

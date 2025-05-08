@@ -82,9 +82,9 @@ erwin_nsa_configs = {
         "rotate": 0,
         "depth": 6,
         "num_heads": 8,
-        "compress_ball_size": 256,
-        "sliding_window_size": 128,
-        "num_selected_blocks": 2,
+        "compress_ball_size": 64,
+        "sliding_window_size": 32,
+        "num_selected_blocks": 1,
     },
 }
 

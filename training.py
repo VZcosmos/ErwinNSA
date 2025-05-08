@@ -185,7 +185,7 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
         torch.cuda.reset_peak_memory_stats(device)
         memory_before_gb = torch.cuda.memory_allocated(device) / (1024**3)
 
-    benchmark_flops(model, train_loader, config)
+    # benchmark_flops(model, train_loader, config)
 
     while global_step < max_steps:
         iterator = tqdm(train_loader, desc=f"Training (step {global_step + 1}/{max_steps})") if use_tqdm else train_loader
@@ -282,13 +282,13 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
             f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
         )
 
-    n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
+    # n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
     if config.get("use_wandb", False):
         wandb.log({"stats/runtime": runtime_seconds}, step=0)
         wandb.log({"stats/peak_gpu_memory": peak_memory_gb}, step=0)
         wandb.log({"stats/before_gpu_memory": memory_before_gb}, step=0)
         wandb.log({"stats/after_gpu_memory": memory_after_gb}, step=0)
-        wandb.log({"stats/n_influenced": n_influenced}, step=0)
+        # wandb.log({"stats/n_influenced": n_influenced}, step=0)
     else:
         print("\n--- Monitoring Results ---")
         print(f"Total Runtime: {runtime_seconds:.2f} seconds")
@@ -301,8 +301,8 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
         print(
             f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
         )
-        print(
-            f"Number of influenced nodes: {n_influenced}"
-        )
+        # print(
+        #     f"Number of influenced nodes: {n_influenced}"
+        # )
 
     return model
