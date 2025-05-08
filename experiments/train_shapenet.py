@@ -82,8 +82,8 @@ erwin_nsa_configs = {
         "rotate": None,
         "depth": 6,
         "num_heads": 8,
-        "compress_ball_size": 16,
-        "sliding_window_size": 8,
+        "compress_ball_size": 256,
+        "sliding_window_size": 128,
         "num_selected_blocks": 2,
     },
 }
@@ -144,9 +144,10 @@ if __name__ == "__main__":
 
     if args.model == "erwin":
         model_config = erwin_configs[args.size]
-    else:
+    elif args.model == "erwin_nsa":
         model_config = erwin_nsa_configs[args.size]
-        # raise NotImplementedError(f"Unknown model: {args.model}")
+    else:
+        raise NotImplementedError(f"Unknown model: {args.model}")
     
     main_model = model_cls[args.model](**model_config)
     model = ShapenetCarModel(main_model).cuda()

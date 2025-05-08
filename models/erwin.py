@@ -414,13 +414,13 @@ class BallNSA(nn.Module):
         self.num_heads = num_heads
         self.compress_ball_size = compress_ball_size
         self.sliding_window_size = sliding_window_size
+        # TEMPORARY
+        self.ball_size = sliding_window_size
 
         self.nsa = SparseAttention(dim, dim//num_heads, num_heads,
                                    sliding_window_size, compress_ball_size,
                                    compress_ball_size,
                                    compress_ball_size, num_selected_blocks)
-        self.qkv = nn.Linear(dim, 3 * dim)
-        self.proj = nn.Linear(dim, dim)
         self.pe_proj = nn.Linear(dimensionality, dim)
         self.sigma_att = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))
 
@@ -438,9 +438,10 @@ class BallNSA(nn.Module):
         return (pos - pos.mean(dim=1, keepdim=True)).view(-1, dim)
 
     def forward(self, x: torch.Tensor, pos: torch.Tensor):
-        x = x + self.pe_proj(self.compute_rel_pos(pos))
-        x = self.NSA(x)
-        return self.proj(x)
+        # to be returned after we modify nsa
+        # x = x + self.pe_proj(self.compute_rel_pos(pos))
+        x = self.nsa(x)
+        return x
 
 
 class BallNSABlock(nn.Module):
@@ -578,8 +579,8 @@ class NSABallformer(nn.Module):
             tree_idx_rot=None, # will be populated in the encoder
         )
 
-        for layer in self.encoder:
+        for layer in self.layers:
             node.tree_idx_rot = tree_idx_rot.pop(0)
             node = layer(node)
 
-        return node.x, node.batch_idx
+        return node.x[tree_mask][torch.argsort(tree_idx[tree_mask])], node.batch_idx
