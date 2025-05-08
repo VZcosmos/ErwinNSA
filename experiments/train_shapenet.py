@@ -9,7 +9,7 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from erwin.training import fit
-from erwin.models.erwin import ErwinTransformer
+from erwin.models.erwin import ErwinTransformer, NSABallformer
 from erwin.experiments.datasets import ShapenetCarDataset
 from erwin.experiments.wrappers import ShapenetCarModel
 
@@ -17,7 +17,7 @@ from erwin.experiments.wrappers import ShapenetCarModel
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="erwin", 
-                        choices=('mpnn', 'pointtransformer', 'pointnetpp', 'erwin'))
+                        choices=('mpnn', 'pointtransformer', 'pointnetpp', 'erwin', 'erwin_nsa'))
     parser.add_argument("--data-path", type=str)
     parser.add_argument("--size", type=str, default="small", 
                         choices=('small', 'medium', 'large'))
@@ -75,8 +75,22 @@ erwin_configs = {
     },
 }
 
+erwin_nsa_configs = {
+    "small": {
+        "c_in": 64,
+        "c_hidden": 64,
+        "rotate": None,
+        "depth": 6,
+        "num_heads": 8,
+        "compress_ball_size": 16,
+        "sliding_window_size": 8,
+        "num_selected_blocks": 2,
+    },
+}
+
 model_cls = {
     "erwin": ErwinTransformer,
+    "erwin_nsa": NSABallformer,
 }
 
 
@@ -131,7 +145,8 @@ if __name__ == "__main__":
     if args.model == "erwin":
         model_config = erwin_configs[args.size]
     else:
-        raise NotImplementedError(f"Unknown model: {args.model}")
+        model_config = erwin_nsa_configs[args.size]
+        # raise NotImplementedError(f"Unknown model: {args.model}")
     
     main_model = model_cls[args.model](**model_config)
     model = ShapenetCarModel(main_model).cuda()

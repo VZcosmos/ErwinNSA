@@ -11,7 +11,7 @@ from typing import Literal, List
 from dataclasses import dataclass
 
 from balltree import build_balltree_with_rotations
-from native_sparse_attention_pytorch.native_sparse_attention_pytorch.native_sparse_attention_clean import SparseAttention
+from native_sparse_attention_clean import SparseAttention
 
 
 def scatter_mean(src: torch.Tensor, idx: torch.Tensor, num_receivers: int):
@@ -517,74 +517,38 @@ class NSABallformer(nn.Module):
         self,
         c_in: int,
         c_hidden: int,
-        ball_sizes: List,
-        enc_num_heads: List,
-        enc_depths: List,
-        strides: List,
         rotate: int,
+        depth: int,
+        num_heads: int,
+        compress_ball_size: int,
+        sliding_window_size: int,
+        num_selected_blocks: int,
         mlp_ratio: int = 4,
         dimensionality: int = 3,
         mp_steps: int = 3,
+        num_layers: int = 1,
     ):
         super().__init__()
-        assert len(strides) == len(ball_sizes) - 1
         
         self.rotate = rotate
-        self.ball_sizes = ball_sizes
-        self.strides = strides
 
         self.embed = ErwinEmbedding(c_in, c_hidden, mp_steps, dimensionality)
-
-       # num_layers = len(enc_depths) - 1 # last one is a bottleneck
-        num_hidden = [c_hidden] + [c_hidden * math.prod(strides[:i]) for i in range(1, num_layers + 1)]
         
-        self.encoder = nn.ModuleList()
+        self.layers = nn.ModuleList()
         for i in range(num_layers):
-            self.encoder.append(
-                BasicLayer(
-                    direction='down',
-                    depth=enc_depths[i],
-                    stride=strides[i],
-                    dim=num_hidden[i],
-                    num_heads=enc_num_heads[i],
-                    ball_size=ball_sizes[i],
-                    rotate=rotate > 0,
-                    mlp_ratio=mlp_ratio,
-                    dimensionality=dimensionality,
-                )
+            self.layers.append(BasicNSALayer(depth=depth,
+                                             dim=c_hidden,
+                                             num_heads=num_heads,
+                                             compress_ball_size=compress_ball_size,
+                                             sliding_window_size=sliding_window_size,
+                                             num_selected_blocks=num_selected_blocks,
+                                             rotate=rotate > 0,
+                                             mlp_ratio=mlp_ratio,
+                                             dimensionality=dimensionality)
             )
 
-        self.bottleneck = BasicLayer(
-            direction=None,
-            depth=enc_depths[-1],
-            stride=None,
-            dim=num_hidden[-1],
-            num_heads=enc_num_heads[-1],
-            ball_size=ball_sizes[-1],
-            rotate=rotate > 0,
-            mlp_ratio=mlp_ratio,
-            dimensionality=dimensionality,
-        )
-
-        if decode:
-            self.decoder = nn.ModuleList()
-            for i in range(num_layers - 1, -1, -1):
-                self.decoder.append(
-                    BasicLayer(
-                        direction='up',
-                        depth=dec_depths[i],
-                        stride=strides[i],
-                        dim=num_hidden[i],
-                        num_heads=dec_num_heads[i],
-                        ball_size=ball_sizes[i],
-                        rotate=rotate > 0,
-                        mlp_ratio=mlp_ratio,
-                        dimensionality=dimensionality,
-                    )
-                )
-
         self.in_dim = c_in
-        self.out_dim = c_hidden if decode else num_hidden[-1]
+        self.out_dim = c_hidden
         self.apply(self._init_weights)
 
     def _init_weights(self, m):
