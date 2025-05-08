@@ -11,7 +11,7 @@ from typing import Literal, List
 from dataclasses import dataclass
 
 from balltree import build_balltree_with_rotations
-from native_sparse_attention_clean import SparseAttention
+from .native_sparse_attention_clean import SparseAttention
 
 
 def scatter_mean(src: torch.Tensor, idx: torch.Tensor, num_receivers: int):
@@ -440,7 +440,14 @@ class BallNSA(nn.Module):
     def forward(self, x: torch.Tensor, pos: torch.Tensor):
         # to be returned after we modify nsa
         # x = x + self.pe_proj(self.compute_rel_pos(pos))
-        x = self.nsa(x)
+        print(f'input to NSA shape: {x.shape}')
+        if x.ndim == 2:
+            x = x.unsqueeze(0)
+            x = self.nsa(x)
+            x = x.squeeze(0)
+        else:
+            x = self.nsa(x)
+        print(f'output from NSA shape: {x.shape}')
         return x
 
 
@@ -565,7 +572,8 @@ class NSABallformer(nn.Module):
         with torch.no_grad():
             # if not given, build the ball tree and radius graph
             if tree_idx is None and tree_mask is None:
-                tree_idx, tree_mask, tree_idx_rot = build_balltree_with_rotations(node_positions, batch_idx, self.strides, self.ball_sizes, self.rotate)
+                # TEMPORARY: [0], [0] as strides and ball_sizes
+                tree_idx, tree_mask, tree_idx_rot = build_balltree_with_rotations(node_positions, batch_idx, [], [0], self.rotate)
             if edge_index is None and self.embed.mp_steps:
                 assert radius is not None, "radius (float) must be provided if edge_index is not given to build radius graph"
                 edge_index = torch_cluster.radius_graph(node_positions, radius, batch=batch_idx, loop=True)
@@ -583,4 +591,4 @@ class NSABallformer(nn.Module):
             node.tree_idx_rot = tree_idx_rot.pop(0)
             node = layer(node)
 
-        return node.x[tree_mask][torch.argsort(tree_idx[tree_mask])], node.batch_idx
+        return node.x[tree_mask][torch.argsort(tree_idx[tree_mask])]

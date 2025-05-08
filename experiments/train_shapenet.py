@@ -79,7 +79,7 @@ erwin_nsa_configs = {
     "small": {
         "c_in": 64,
         "c_hidden": 64,
-        "rotate": None,
+        "rotate": 0,
         "depth": 6,
         "num_heads": 8,
         "compress_ball_size": 256,
