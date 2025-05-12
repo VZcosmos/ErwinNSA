@@ -418,8 +418,7 @@ class BallNSA(nn.Module):
         self.ball_size = sliding_window_size
 
         self.nsa = SparseAttention(dim, dim//num_heads, num_heads,
-                                   self.ball_size,
-                                   compress_ball_size,
+                                   sliding_window_size, compress_ball_size,
                                    compress_ball_size,
                                    compress_ball_size, num_selected_blocks)
         self.pe_proj = nn.Linear(dimensionality, dim)
@@ -442,12 +441,13 @@ class BallNSA(nn.Module):
         # to be returned after we modify nsa
         # x = x + self.pe_proj(self.compute_rel_pos(pos))
         # print(f'input to NSA shape: {x.shape}')
+        pos_emb = self.pe_proj(self.compute_rel_pos(pos)) 
         if x.ndim == 2:
             x = x.unsqueeze(0)
-            x = self.nsa(x, pos)
+            x = self.nsa(x, pos_emb=pos_emb) # add pos_emb to sliding window attention
             x = x.squeeze(0)
         else:
-            x = self.nsa(x, pos)
+            x = self.nsa(x, pos_emb=pos_emb) # add pos_emb to sliding window attention
         # print(f'output from NSA shape: {x.shape}')
         return x
 

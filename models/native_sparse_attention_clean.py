@@ -9,6 +9,8 @@ import torch.nn.functional as F
 from torch import nn, arange, stack, cat, tensor, Tensor
 from torch.nn import Module, ModuleList
 
+from local_attention import LocalAttention
+
 # einstein notation
 
 import einx
@@ -163,7 +165,7 @@ class SparseAttention(Module):
         dim,
         dim_head,
         heads,
-        ball_size,
+        sliding_window_size,
         compress_block_size,
         compress_block_sliding_stride,
         selection_block_size,
@@ -189,7 +191,6 @@ class SparseAttention(Module):
         self.dim_head = dim_head
         self.kv_heads = kv_heads
         self.num_grouped_queries = heads // kv_heads
-        self.ball_size = ball_size
 
         # scale
 
@@ -207,6 +208,18 @@ class SparseAttention(Module):
         self.to_qkv = nn.Linear(dim, sum(qkv_split), bias = False)
 
         self.qkv_split = qkv_split
+
+        # sliding window strategy
+
+        self.sliding_window = LocalAttention(
+            dim = dim_head,
+            window_size = sliding_window_size,
+            exact_windowsize = True,
+            autopad = True,
+            use_rotary_pos_emb = False
+        )
+
+        self.sliding_window_size = sliding_window_size
 
         # compress strategy
 
@@ -244,11 +257,6 @@ class SparseAttention(Module):
 
         self.k_compress = deepcopy(compress_mlp)
         self.v_compress = deepcopy(compress_mlp)
-
-        # local window strategy
-
-        self.local_attention_mask = None
-        self.sigma_att = nn.Parameter(-1 + 0.01 * torch.randn((1, heads, 1, 1)))
 
         # selection related
 
@@ -288,41 +296,16 @@ class SparseAttention(Module):
 
         self.combine_heads = nn.Linear(dim_inner, dim, bias = False)
 
-    @torch.no_grad()
-    def create_attention_mask(self, pos: torch.Tensor):
-        """ Distance-based attention bias (eq. 10). """
-        pos = rearrange(pos, '(n m) d -> n m d', m=self.compress_block_size)
-        return self.sigma_att * torch.cdist(pos, pos, p=2).unsqueeze(1)
-
-    def local_attention_mask_mod(self, batch, head, q_idx, kv_idx):
-        # True if query and key indices lie in the same B-sized block
-        return (q_idx // self.compress_block_size) == (kv_idx // self.compress_block_size)
-
-
-    def pos_bias_score_mod(self, score, b, h, q_idx, kv_idx):
-        return score + self.pos_attn_bias
 
     def forward(
         self,
         inp,
-        pos,
         sliding_window_flex_mask = None,
         fine_selection_flex_mask = None,
+        pos_emb = None # add positional embedding for sliding window attention
     ):
 
         batch, seq_len, scale, heads, kv_heads, device = *inp.shape[:2], self.scale, self.heads, self.kv_heads, inp.device
-
-        if not exists(self.local_attention_mask): 
-            self.local_attention_mask = create_block_mask(
-                self.local_attention_mask_mod,
-                B=None,
-                H=None,
-                Q_LEN=seq_len,
-                KV_LEN=seq_len,
-                BLOCK_SIZE=self.ball_size,
-                device=device
-            )
-            self.local_attn = partial(flex_attention, score_mod=self.pos_bias_score_mod, block_mask=self.local_attention_mask, enable_gqa=True)
 
         compress_divisible_seq_len = round_down_mult(seq_len, self.compress_block_sliding_stride)
         num_compress_blocks = compress_divisible_seq_len // self.compress_block_sliding_stride
@@ -336,6 +319,12 @@ class SparseAttention(Module):
         # maybe prenorm
 
         inp = self.norm(inp)
+
+        # add positional embedding for sliding window attention
+        if pos_emb is not None:
+            inp_sliding = inp + pos_emb
+        else:
+            inp_sliding = inp
 
         # queries, keys, values
 
@@ -544,18 +533,27 @@ class SparseAttention(Module):
 
         # 3. overlapping sliding window, this is unsurprising and expected - `s` for sliding
 
-        sq = q
-        sk = k
-        sv = v
+        # add positional embedding for sliding window attention
+        q_s, k_s, v_s = self.to_qkv(inp_sliding).split(self.qkv_split, dim = -1)
 
-        self.pos_attn_bias = self.create_attention_mask(pos)
-        local_attn_out = self.local_attn(sq, sk, sv)
+        q_s, k_s, v_s = map(self.split_heads, (q_s, k_s, v_s))
+
+        sq = q_s
+        sk = k_s
+        sv = v_s
+
+        if exists(sliding_window_flex_mask):
+            sliding_window_attn_out = flex_attention(sq, sk, sv, block_mask = sliding_window_flex_mask, enable_gqa = True)
+        else:
+            sk, sv = tuple(repeat(t, 'b h ... -> b (h num_grouped_queries) ...', num_grouped_queries = self.num_grouped_queries) for t in (sk, sv))
+
+            sliding_window_attn_out = self.sliding_window(sq, sk, sv)
 
         # combine strategies
 
         strategy_weighted_combine = self.to_strategy_combine(inp)
 
-        out = einsum(strategy_weighted_combine, stack([compressed_attn_out, fine_attn_out, local_attn_out]), 'b h n s, s b h n d -> b h n d')
+        out = einsum(strategy_weighted_combine, stack([compressed_attn_out, fine_attn_out, sliding_window_attn_out]), 'b h n s, s b h n d -> b h n d')
 
         # merge heads and combine them
 
