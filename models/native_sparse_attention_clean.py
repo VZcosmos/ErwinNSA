@@ -163,6 +163,7 @@ class SparseAttention(Module):
         dim,
         dim_head,
         heads,
+        ball_size,
         compress_block_size,
         compress_block_sliding_stride,
         selection_block_size,
@@ -188,6 +189,7 @@ class SparseAttention(Module):
         self.dim_head = dim_head
         self.kv_heads = kv_heads
         self.num_grouped_queries = heads // kv_heads
+        self.ball_size = ball_size
 
         # scale
 
@@ -298,7 +300,7 @@ class SparseAttention(Module):
 
 
     def pos_bias_score_mod(self, score, b, h, q_idx, kv_idx):
-        return score + pos_attn_bias
+        return score + self.pos_attn_bias
 
     def forward(
         self,
@@ -317,10 +319,10 @@ class SparseAttention(Module):
                 H=None,
                 Q_LEN=seq_len,
                 KV_LEN=seq_len,
-                BLOCK_SIZE=self.compress_block_size,
+                BLOCK_SIZE=self.ball_size,
                 device=device
             )
-            self.local_attn = partial(flex_attention, block_mask=self.local_attention_mask, enable_gqa=True)
+            self.local_attn = partial(flex_attention, score_mod=self.pos_bias_score_mod, block_mask=self.local_attention_mask, enable_gqa=True)
 
         compress_divisible_seq_len = round_down_mult(seq_len, self.compress_block_sliding_stride)
         num_compress_blocks = compress_divisible_seq_len // self.compress_block_sliding_stride
@@ -546,8 +548,7 @@ class SparseAttention(Module):
         sk = k
         sv = v
 
-
-        pos_attn_bias = self.create_attention_mask(pos)
+        self.pos_attn_bias = self.create_attention_mask(pos)
         local_attn_out = self.local_attn(sq, sk, sv)
 
         # combine strategies
