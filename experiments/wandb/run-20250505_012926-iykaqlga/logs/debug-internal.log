@@ -1,0 +1,15 @@
+{"time":"2025-05-05T01:29:26.386692399+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/gpfs/home5/scur2687/erwin/experiments/wandb/run-20250505_012926-iykaqlga/logs/debug-core.log"}
+{"time":"2025-05-05T01:29:26.62803363+02:00","level":"INFO","msg":"created new stream","id":"iykaqlga"}
+{"time":"2025-05-05T01:29:26.62807644+02:00","level":"INFO","msg":"stream: started","id":"iykaqlga"}
+{"time":"2025-05-05T01:29:26.628092415+02:00","level":"INFO","msg":"sender: started","stream_id":"iykaqlga"}
+{"time":"2025-05-05T01:29:26.628090448+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"iykaqlga"}
+{"time":"2025-05-05T01:29:26.628110364+02:00","level":"INFO","msg":"handler: started","stream_id":"iykaqlga"}
+{"time":"2025-05-05T01:29:26.822906363+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-05-05T01:38:14.326699696+02:00","level":"INFO","msg":"stream: closing","id":"iykaqlga"}
+{"time":"2025-05-05T01:38:14.326735778+02:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-05-05T01:38:14.326763059+02:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-05-05T01:38:15.214723376+02:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-05-05T01:38:15.414859663+02:00","level":"INFO","msg":"handler: closed","stream_id":"iykaqlga"}
+{"time":"2025-05-05T01:38:15.41490879+02:00","level":"INFO","msg":"sender: closed","stream_id":"iykaqlga"}
+{"time":"2025-05-05T01:38:15.414905764+02:00","level":"INFO","msg":"writer: Close: closed","stream_id":"iykaqlga"}
+{"time":"2025-05-05T01:38:15.415070257+02:00","level":"INFO","msg":"stream: closed","id":"iykaqlga"}

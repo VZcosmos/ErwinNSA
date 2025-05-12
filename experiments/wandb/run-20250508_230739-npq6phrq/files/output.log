@@ -1,0 +1,59 @@
+input to NSA shape: torch.Size([8192, 64])
+output from NSA shape: torch.Size([8192, 64])
+input to NSA shape: torch.Size([8192, 64])
+output from NSA shape: torch.Size([8192, 64])
+input to NSA shape: torch.Size([8192, 64])
+output from NSA shape: torch.Size([8192, 64])
+input to NSA shape: torch.Size([8192, 64])
+output from NSA shape: torch.Size([8192, 64])
+input to NSA shape: torch.Size([8192, 64])
+output from NSA shape: torch.Size([8192, 64])
+input to NSA shape: torch.Size([8192, 64])
+output from NSA shape: torch.Size([8192, 64])
+input to NSA shape: torch.Size([8192, 64])
+output from NSA shape: torch.Size([8192, 64])
+input to NSA shape: torch.Size([8192, 64])
+output from NSA shape: torch.Size([8192, 64])
+input to NSA shape: torch.Size([8192, 64])
+output from NSA shape: torch.Size([8192, 64])
+input to NSA shape: torch.Size([8192, 64])
+output from NSA shape: torch.Size([8192, 64])
+GPU Memory allocated after: 0.1459 GB
+input to NSA shape: torch.Size([8192, 64])
+output from NSA shape: torch.Size([8192, 64])
+Traceback (most recent call last):
+  File "/gpfs/home5/scur2687/erwin/experiments/train_shapenet.py", line 162, in <module>
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 110, 160)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 285, in fit
+    n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 145, in evaluate_interactions_from_batch
+    influences = measure_interaction_batch(model_from_node_features, node_features, node_positions, i_s, bs, batch)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 127, in measure_interaction_batch
+    jacobian = torch.autograd.functional.jacobian(f, x, create_graph=False)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/functional.py", line 789, in jacobian
+    vj = _autograd_grad(
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/functional.py", line 195, in _autograd_grad
+    return torch.autograd.grad(
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/__init__.py", line 496, in grad
+    result = _engine_run_backward(
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/graph.py", line 825, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 16.00 GiB. GPU 0 has a total capacity of 39.50 GiB of which 6.14 GiB is free. Including non-PyTorch memory, this process has 33.34 GiB memory in use. Of the allocated memory 16.88 GiB is allocated by PyTorch, and 15.97 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/gpfs/home5/scur2687/erwin/experiments/train_shapenet.py", line 162, in <module>
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 110, 160)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 285, in fit
+    n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 145, in evaluate_interactions_from_batch
+    influences = measure_interaction_batch(model_from_node_features, node_features, node_positions, i_s, bs, batch)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 127, in measure_interaction_batch
+    jacobian = torch.autograd.functional.jacobian(f, x, create_graph=False)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/functional.py", line 789, in jacobian
+    vj = _autograd_grad(
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/functional.py", line 195, in _autograd_grad
+    return torch.autograd.grad(
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/__init__.py", line 496, in grad
+    result = _engine_run_backward(
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/graph.py", line 825, in _engine_run_backward
+    return Variable._execution_engine.run_backward(  # Calls into the C++ engine to run the backward pass
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 16.00 GiB. GPU 0 has a total capacity of 39.50 GiB of which 6.14 GiB is free. Including non-PyTorch memory, this process has 33.34 GiB memory in use. Of the allocated memory 16.88 GiB is allocated by PyTorch, and 15.97 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)

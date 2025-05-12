@@ -1,0 +1,15 @@
+{"time":"2025-05-05T01:12:46.611607997+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/gpfs/home5/scur2687/erwin/experiments/wandb/run-20250505_011246-jki19e6a/logs/debug-core.log"}
+{"time":"2025-05-05T01:12:46.850120519+02:00","level":"INFO","msg":"created new stream","id":"jki19e6a"}
+{"time":"2025-05-05T01:12:46.850163763+02:00","level":"INFO","msg":"stream: started","id":"jki19e6a"}
+{"time":"2025-05-05T01:12:46.850182582+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"jki19e6a"}
+{"time":"2025-05-05T01:12:46.850185014+02:00","level":"INFO","msg":"handler: started","stream_id":"jki19e6a"}
+{"time":"2025-05-05T01:12:46.850192962+02:00","level":"INFO","msg":"sender: started","stream_id":"jki19e6a"}
+{"time":"2025-05-05T01:12:47.032089904+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-05-05T01:12:48.583413641+02:00","level":"INFO","msg":"stream: closing","id":"jki19e6a"}
+{"time":"2025-05-05T01:12:48.58345138+02:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-05-05T01:12:48.583486847+02:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-05-05T01:12:49.399451802+02:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-05-05T01:12:49.586192788+02:00","level":"INFO","msg":"handler: closed","stream_id":"jki19e6a"}
+{"time":"2025-05-05T01:12:49.586232223+02:00","level":"INFO","msg":"writer: Close: closed","stream_id":"jki19e6a"}
+{"time":"2025-05-05T01:12:49.586248823+02:00","level":"INFO","msg":"sender: closed","stream_id":"jki19e6a"}
+{"time":"2025-05-05T01:12:49.586397823+02:00","level":"INFO","msg":"stream: closed","id":"jki19e6a"}

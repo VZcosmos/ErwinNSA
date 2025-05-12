@@ -1,0 +1,44 @@
+============================================================================================== 
+Warning! Mixing Conda and module environments may lead to corruption of the
+user environment. 
+We do not recommend users mixing those two environments unless absolutely
+necessary. Note that 
+SURF does not provide any support for Conda environment.
+For more information, please refer to our software policy page:
+https://servicedesk.surf.nl/wiki/display/WIKI/Software+policy+Snellius#SoftwarepolicySnellius-UseofAnacondaandMinicondaenvironmentsonSnellius 
+
+Remember that many packages have already been installed on the system and can
+be loaded using 
+the 'module load <package__name>' command. If you are uncertain if a package is
+already available 
+on the system, please use 'module avail' or 'module spider' to search for it.
+============================================================================================== 
+/gpfs/home5/scur2687/erwin/tree_build_visualisation.py:9: FutureWarning: You are using `torch.load` with `weights_only=False` (the current default value), which uses the default pickle module implicitly. It is possible to construct malicious pickle data which will execute arbitrary code during unpickling (See https://github.com/pytorch/pytorch/blob/main/SECURITY.md#untrusted-models for more details). In a future release, the default value for `weights_only` will be flipped to `True`. This limits the functions that could be executed during unpickling. Arbitrary objects will no longer be allowed to be loaded via this mode unless they are explicitly allowlisted by the user via `torch.serialization.add_safe_globals`. We recommend you start setting `weights_only=True` for any use case where you don't have full control of the loaded file. Please open an issue on GitHub for any issues related to this experimental feature.
+  points = torch.load(path)
+Saved visualization_level_0.png with matplotlib
+Saved visualization_level_2.png with matplotlib
+Saved visualization_level_4.png with matplotlib
+Saved visualization_level_6.png with matplotlib
+Saved visualization_level_8.png with matplotlib
+Saved visualization_level_10.png with matplotlib
+Saved visualization_level_12.png with matplotlib
+Traceback (most recent call last):
+  File "/gpfs/home5/scur2687/erwin/tree_build_visualisation.py", line 32, in <module>
+    groups = grouped_points.reshape(-1, node_size, 3)
+RuntimeError: shape '[-1, 16384, 3]' is invalid for input of size 12288
+srun: error: gcn2: task 0: Exited with exit code 1
+srun: Terminating StepId=11364218.0
+
+JOB STATISTICS
+==============
+Job ID: 11364218
+Cluster: snellius
+User/Group: scur2687/scur2687
+State: FAILED (exit code 1)
+Nodes: 1
+Cores per node: 9
+CPU Utilized: 00:00:48
+CPU Efficiency: 9.70% of 00:08:15 core-walltime
+Job Wall-clock time: 00:00:55
+Memory Utilized: 434.48 MB
+Memory Efficiency: 0.71% of 60.00 GB (60.00 GB/node)

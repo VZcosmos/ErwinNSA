@@ -1,0 +1,46 @@
+GPU Memory allocated after: 0.0048 GB
+Batch keys: dict_keys(['node_positions', 'target', 'num_nodes', 'batch_idx', 'edge_index'])
+Traceback (most recent call last):
+  File "/gpfs/home5/scur2687/erwin/experiments/train_shapenet.py", line 146, in <module>
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 110, 160)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 294, in fit
+    n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 146, in evaluate_interactions_from_batch
+    influences = measure_interaction_batch(model_from_node_features, node_features, node_positions, i_s, bs, radius)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 126, in measure_interaction_batch
+    jacobian = torch.autograd.functional.jacobian(f, x, create_graph=False)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/functional.py", line 677, in jacobian
+    outputs = func(*inputs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 125, in f
+    return model(input_x, pos, batch_idx, radius=radius)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 140, in model_from_node_features
+    return model.pred_head(model.main_model(node_feats, *args, **kwargs))
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 378, in forward
+    assert radius is not None, "radius (float) must be provided if edge_index is not given to build radius graph"
+AssertionError: radius (float) must be provided if edge_index is not given to build radius graph
+Traceback (most recent call last):
+  File "/gpfs/home5/scur2687/erwin/experiments/train_shapenet.py", line 146, in <module>
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 110, 160)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 294, in fit
+    n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 146, in evaluate_interactions_from_batch
+    influences = measure_interaction_batch(model_from_node_features, node_features, node_positions, i_s, bs, radius)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 126, in measure_interaction_batch
+    jacobian = torch.autograd.functional.jacobian(f, x, create_graph=False)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/functional.py", line 677, in jacobian
+    outputs = func(*inputs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 125, in f
+    return model(input_x, pos, batch_idx, radius=radius)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 140, in model_from_node_features
+    return model.pred_head(model.main_model(node_feats, *args, **kwargs))
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 378, in forward
+    assert radius is not None, "radius (float) must be provided if edge_index is not given to build radius graph"
+AssertionError: radius (float) must be provided if edge_index is not given to build radius graph

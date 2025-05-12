@@ -1,0 +1,60 @@
+Traceback (most recent call last):
+  File "/gpfs/home5/scur2687/erwin/experiments/train_shapenet.py", line 162, in <module>
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 110, 160)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 188, in fit
+    benchmark_flops(model, train_loader, config)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 156, in benchmark_flops
+    res = model.training_step(sample_batch)["train/loss"]
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 46, in training_step
+    return self.step(batch, "train")
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 40, in step
+    pred = self(**batch).squeeze(-1)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1844, in _call_impl
+    return inner()
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1790, in inner
+    result = forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 31, in forward
+    return self.pred_head(self.main_model(node_features, node_positions, **kwargs))
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1844, in _call_impl
+    return inner()
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1790, in inner
+    result = forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 568, in forward
+    tree_idx, tree_mask, tree_idx_rot = build_balltree_with_rotations(node_positions, batch_idx, self.strides, self.ball_sizes, self.rotate)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1931, in __getattr__
+    raise AttributeError(
+AttributeError: 'NSABallformer' object has no attribute 'strides'
+Traceback (most recent call last):
+  File "/gpfs/home5/scur2687/erwin/experiments/train_shapenet.py", line 162, in <module>
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 110, 160)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 188, in fit
+    benchmark_flops(model, train_loader, config)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 156, in benchmark_flops
+    res = model.training_step(sample_batch)["train/loss"]
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 46, in training_step
+    return self.step(batch, "train")
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 40, in step
+    pred = self(**batch).squeeze(-1)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1844, in _call_impl
+    return inner()
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1790, in inner
+    result = forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 31, in forward
+    return self.pred_head(self.main_model(node_features, node_positions, **kwargs))
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1844, in _call_impl
+    return inner()
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1790, in inner
+    result = forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 568, in forward
+    tree_idx, tree_mask, tree_idx_rot = build_balltree_with_rotations(node_positions, batch_idx, self.strides, self.ball_sizes, self.rotate)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1931, in __getattr__
+    raise AttributeError(
+AttributeError: 'NSABallformer' object has no attribute 'strides'

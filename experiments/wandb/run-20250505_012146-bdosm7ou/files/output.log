@@ -1,0 +1,30 @@
+GPU Memory allocated after: 0.0048 GB
+Batch keys: dict_keys(['node_positions', 'target', 'num_nodes', 'batch_idx', 'edge_index'])
+Traceback (most recent call last):
+  File "/gpfs/home5/scur2687/erwin/experiments/train_shapenet.py", line 146, in <module>
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 110, 160)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 293, in fit
+    n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 145, in evaluate_interactions_from_batch
+    influences = measure_interaction_batch(model_from_node_features, node_features, node_positions, i_s, bs, batch)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 126, in measure_interaction_batch
+    jacobian = torch.autograd.functional.jacobian(f, x, create_graph=False)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/functional.py", line 819, in jacobian
+    tuple(
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/functional.py", line 820, in <genexpr>
+    torch.stack(jac_i_el, dim=0).view(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 12.27 GiB. GPU 0 has a total capacity of 19.62 GiB of which 4.56 GiB is free. Process 658030 has 17.45 GiB memory in use. Including non-PyTorch memory, this process has 15.02 GiB memory in use. Of the allocated memory 14.76 GiB is allocated by PyTorch, and 50.11 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)
+Traceback (most recent call last):
+  File "/gpfs/home5/scur2687/erwin/experiments/train_shapenet.py", line 146, in <module>
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 110, 160)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 293, in fit
+    n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 145, in evaluate_interactions_from_batch
+    influences = measure_interaction_batch(model_from_node_features, node_features, node_positions, i_s, bs, batch)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 126, in measure_interaction_batch
+    jacobian = torch.autograd.functional.jacobian(f, x, create_graph=False)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/functional.py", line 819, in jacobian
+    tuple(
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/autograd/functional.py", line 820, in <genexpr>
+    torch.stack(jac_i_el, dim=0).view(
+torch.OutOfMemoryError: CUDA out of memory. Tried to allocate 12.27 GiB. GPU 0 has a total capacity of 19.62 GiB of which 4.56 GiB is free. Process 658030 has 17.45 GiB memory in use. Including non-PyTorch memory, this process has 15.02 GiB memory in use. Of the allocated memory 14.76 GiB is allocated by PyTorch, and 50.11 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)

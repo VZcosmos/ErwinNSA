@@ -1,0 +1,1 @@
+{"_timestamp":1.7469040578352182e+09,"train/loss":0.8013620376586914,"train/mse":1890.78369140625,"_runtime":3.98026329,"_step":4,"_wandb":{"runtime":3},"stats/forward_flops":78479671808}

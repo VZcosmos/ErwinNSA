@@ -116,18 +116,18 @@ def get_leaf_values(nested_dict):
 
 def measure_interaction_batch(model, x, pos, i_s, bs, batch):
     x = x.detach().clone().requires_grad_(True)
-    N = x.shape[0]
+    N, F = x.shape
     batch_idx = torch.repeat_interleave(torch.arange(bs), N).cuda()
     
     influences = torch.zeros((len(i_s), N), device=x.device)
 
-    for j in range(N):
+    for idx, j in enumerate(i_s):
         def f(input_x):
             return model(input_x, pos, batch_idx, edge_index=batch['edge_index'], num_nodes=batch['num_nodes'])[j]
         jacobian = torch.autograd.functional.jacobian(f, x, create_graph=False)
-        #print(f'Jacobian {jacobian.shape}')
-        for num_i, i in enumerate(i_s):
-            influences[num_i, j] = (jacobian[:, i, :] ** 2).sum()
+        # jacobian shape: (feature_dim, N, F)
+        # For each input node i, sum the squared jacobian over output and feature dimensions
+        influences[idx] = (jacobian ** 2).sum(dim=(0, 2))
 
     return influences
 
@@ -185,7 +185,7 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
         torch.cuda.reset_peak_memory_stats(device)
         memory_before_gb = torch.cuda.memory_allocated(device) / (1024**3)
 
-    # benchmark_flops(model, train_loader, config)
+    benchmark_flops(model, train_loader, config)
 
     while global_step < max_steps:
         iterator = tqdm(train_loader, desc=f"Training (step {global_step + 1}/{max_steps})") if use_tqdm else train_loader
@@ -282,27 +282,28 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
             f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
         )
 
-    # n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
     if config.get("use_wandb", False):
         wandb.log({"stats/runtime": runtime_seconds}, step=0)
         wandb.log({"stats/peak_gpu_memory": peak_memory_gb}, step=0)
         wandb.log({"stats/before_gpu_memory": memory_before_gb}, step=0)
         wandb.log({"stats/after_gpu_memory": memory_after_gb}, step=0)
-        # wandb.log({"stats/n_influenced": n_influenced}, step=0)
-    else:
-        print("\n--- Monitoring Results ---")
-        print(f"Total Runtime: {runtime_seconds:.2f} seconds")
-        print(
-            f"Peak GPU Memory Allocated during execution: {peak_memory_gb:.4f} GB"
-        )
-        print(
-            f"GPU Memory allocated before: {memory_before_gb:.4f} GB"
-        )
-        print(
-            f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
-        )
-        # print(
-        #     f"Number of influenced nodes: {n_influenced}"
-        # )
+    n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
+    if config.get("use_wandb", False):
+        wandb.log({"stats/n_influenced": n_influenced}, step=0)
+    
+    print("\n--- Monitoring Results ---")
+    print(f"Total Runtime: {runtime_seconds:.2f} seconds")
+    print(
+        f"Peak GPU Memory Allocated during execution: {peak_memory_gb:.4f} GB"
+    )
+    print(
+        f"GPU Memory allocated before: {memory_before_gb:.4f} GB"
+    )
+    print(
+        f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
+    )
+    print(
+        f"Number of influenced nodes: {n_influenced}"
+    )
 
     return model

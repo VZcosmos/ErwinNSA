@@ -1,0 +1,15 @@
+{"time":"2025-05-06T20:01:38.315009315+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/gpfs/home5/scur2687/erwin/experiments/wandb/run-20250506_200138-ldoxroc2/logs/debug-core.log"}
+{"time":"2025-05-06T20:01:38.582451095+02:00","level":"INFO","msg":"created new stream","id":"ldoxroc2"}
+{"time":"2025-05-06T20:01:38.582508914+02:00","level":"INFO","msg":"stream: started","id":"ldoxroc2"}
+{"time":"2025-05-06T20:01:38.582547913+02:00","level":"INFO","msg":"handler: started","stream_id":"ldoxroc2"}
+{"time":"2025-05-06T20:01:38.582553805+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"ldoxroc2"}
+{"time":"2025-05-06T20:01:38.582548181+02:00","level":"INFO","msg":"sender: started","stream_id":"ldoxroc2"}
+{"time":"2025-05-06T20:01:38.798265117+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-05-06T20:01:40.420339724+02:00","level":"INFO","msg":"stream: closing","id":"ldoxroc2"}
+{"time":"2025-05-06T20:01:40.420399035+02:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-05-06T20:01:40.42046661+02:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-05-06T20:01:41.135487486+02:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-05-06T20:01:41.297100531+02:00","level":"INFO","msg":"handler: closed","stream_id":"ldoxroc2"}
+{"time":"2025-05-06T20:01:41.297136139+02:00","level":"INFO","msg":"writer: Close: closed","stream_id":"ldoxroc2"}
+{"time":"2025-05-06T20:01:41.297153737+02:00","level":"INFO","msg":"sender: closed","stream_id":"ldoxroc2"}
+{"time":"2025-05-06T20:01:41.29730924+02:00","level":"INFO","msg":"stream: closed","id":"ldoxroc2"}

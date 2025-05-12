@@ -1,0 +1,19 @@
+{"time":"2025-05-08T23:18:04.337769513+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/gpfs/home5/scur2687/erwin/experiments/wandb/run-20250508_231804-jub4dyc2/logs/debug-core.log"}
+{"time":"2025-05-08T23:18:04.587815148+02:00","level":"INFO","msg":"created new stream","id":"jub4dyc2"}
+{"time":"2025-05-08T23:18:04.587872362+02:00","level":"INFO","msg":"stream: started","id":"jub4dyc2"}
+{"time":"2025-05-08T23:18:04.587903249+02:00","level":"INFO","msg":"handler: started","stream_id":"jub4dyc2"}
+{"time":"2025-05-08T23:18:04.588045038+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"jub4dyc2"}
+{"time":"2025-05-08T23:18:04.587911985+02:00","level":"INFO","msg":"sender: started","stream_id":"jub4dyc2"}
+{"time":"2025-05-08T23:18:04.827909984+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-05-08T23:18:11.106375342+02:00","level":"WARN","msg":"handler: ignoring partial history record","step":0,"current":9}
+{"time":"2025-05-08T23:18:11.10646112+02:00","level":"WARN","msg":"handler: ignoring partial history record","step":0,"current":9}
+{"time":"2025-05-08T23:18:11.106546952+02:00","level":"WARN","msg":"handler: ignoring partial history record","step":0,"current":9}
+{"time":"2025-05-08T23:18:11.106624099+02:00","level":"WARN","msg":"handler: ignoring partial history record","step":0,"current":9}
+{"time":"2025-05-08T23:18:11.454284612+02:00","level":"INFO","msg":"stream: closing","id":"jub4dyc2"}
+{"time":"2025-05-08T23:18:11.454331821+02:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-05-08T23:18:11.454390174+02:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-05-08T23:18:12.05053386+02:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-05-08T23:18:12.239895859+02:00","level":"INFO","msg":"handler: closed","stream_id":"jub4dyc2"}
+{"time":"2025-05-08T23:18:12.239941687+02:00","level":"INFO","msg":"writer: Close: closed","stream_id":"jub4dyc2"}
+{"time":"2025-05-08T23:18:12.239960614+02:00","level":"INFO","msg":"sender: closed","stream_id":"jub4dyc2"}
+{"time":"2025-05-08T23:18:12.240149257+02:00","level":"INFO","msg":"stream: closed","id":"jub4dyc2"}

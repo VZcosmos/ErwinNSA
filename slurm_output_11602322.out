@@ -1,0 +1,53 @@
+============================================================================================== 
+Warning! Mixing Conda and module environments may lead to corruption of the
+user environment. 
+We do not recommend users mixing those two environments unless absolutely
+necessary. Note that 
+SURF does not provide any support for Conda environment.
+For more information, please refer to our software policy page:
+https://servicedesk.surf.nl/wiki/display/WIKI/Software+policy+Snellius#SoftwarepolicySnellius-UseofAnacondaandMinicondaenvironmentsonSnellius 
+
+Remember that many packages have already been installed on the system and can
+be loaded using 
+the 'module load <package__name>' command. If you are uncertain if a package is
+already available 
+on the system, please use 'module avail' or 'module spider' to search for it.
+============================================================================================== 
+2025-05-06 20:12:28.103332: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2025-05-06 20:12:28.206965: E external/local_xla/xla/stream_executor/cuda/cuda_fft.cc:467] Unable to register cuFFT factory: Attempting to register factory for plugin cuFFT when one has already been registered
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+E0000 00:00:1746555148.247634 2328034 cuda_dnn.cc:8579] Unable to register cuDNN factory: Attempting to register factory for plugin cuDNN when one has already been registered
+E0000 00:00:1746555148.262023 2328034 cuda_blas.cc:1407] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+W0000 00:00:1746555148.335520 2328034 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1746555148.335546 2328034 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1746555148.335549 2328034 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+W0000 00:00:1746555148.335551 2328034 computation_placer.cc:177] computation placer already registered. Please check linkage and avoid linking the same target more than once.
+2025-05-06 20:12:28.343122: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+wandb: Using wandb-core as the SDK backend.  Please refer to https://wandb.me/wandb-core for more information.
+wandb: Currently logged in as: maria-m-m-marchenko (mmmarchenko) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Tracking run with wandb version 0.19.9
+wandb: Run data is saved locally in /gpfs/home5/scur2687/erwin/experiments/wandb/run-20250506_201236-t3kdbwz0
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run erwin_shapenet
+wandb: ⭐️ View project at https://wandb.ai/mmmarchenko/ballformer
+wandb: 🚀 View run at https://wandb.ai/mmmarchenko/ballformer/runs/t3kdbwz0
+GPU Memory allocated after: 0.0127 GB
+Batch keys: dict_keys(['node_positions', 'target', 'num_nodes', 'batch_idx', 'edge_index'])
+[1;34mwandb[0m: 
+[1;34mwandb[0m: 🚀 View run [33merwin_shapenet[0m at: [34mhttps://wandb.ai/mmmarchenko/ballformer/runs/t3kdbwz0[0m
+[1;34mwandb[0m: Find logs at: [1;35mwandb/run-20250506_201236-t3kdbwz0/logs[0m
+
+JOB STATISTICS
+==============
+Job ID: 11602322
+Cluster: snellius
+User/Group: scur2687/scur2687
+State: COMPLETED (exit code 0)
+Nodes: 1
+Cores per node: 18
+CPU Utilized: 00:15:34
+CPU Efficiency: 13.62% of 01:54:18 core-walltime
+Job Wall-clock time: 00:06:21
+Memory Utilized: 1.66 GB
+Memory Efficiency: 1.39% of 120.00 GB (120.00 GB/node)

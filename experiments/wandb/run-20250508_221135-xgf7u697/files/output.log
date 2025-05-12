@@ -1,0 +1,109 @@
+input to NSA shape: torch.Size([8192, 64])
+Traceback (most recent call last):
+  File "/gpfs/home5/scur2687/erwin/experiments/train_shapenet.py", line 162, in <module>
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 110, 160)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 212, in fit
+    stat_dict = train_step(model, batch, optimizer, scheduler)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 65, in train_step
+    stat_dict = model.training_step(batch)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 46, in training_step
+    return self.step(batch, "train")
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 40, in step
+    pred = self(**batch).squeeze(-1)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 31, in forward
+    return self.pred_head(self.main_model(node_features, node_positions, **kwargs))
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 586, in forward
+    node = layer(node)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 489, in forward
+    node.x = blk(node.x, node.pos)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 457, in forward
+    x = x + self.BNSA(self.norm1(x), pos)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 444, in forward
+    x = self.nsa(x)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/native_sparse_attention_clean.py", line 335, in forward
+    q, k, v = map(self.split_heads, (q, k, v))
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/einops/layers/torch.py", line 14, in forward
+    recipe = self._multirecipe[input.ndim]
+KeyError: 2
+Traceback (most recent call last):
+  File "/gpfs/home5/scur2687/erwin/experiments/train_shapenet.py", line 162, in <module>
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 110, 160)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 212, in fit
+    stat_dict = train_step(model, batch, optimizer, scheduler)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/training.py", line 65, in train_step
+    stat_dict = model.training_step(batch)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 46, in training_step
+    return self.step(batch, "train")
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 40, in step
+    pred = self(**batch).squeeze(-1)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/experiments/wrappers/shapenet.py", line 31, in forward
+    return self.pred_head(self.main_model(node_features, node_positions, **kwargs))
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 586, in forward
+    node = layer(node)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 489, in forward
+    node.x = blk(node.x, node.pos)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 457, in forward
+    x = x + self.BNSA(self.norm1(x), pos)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/erwin.py", line 444, in forward
+    x = self.nsa(x)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/experiments/../../erwin/models/native_sparse_attention_clean.py", line 335, in forward
+    q, k, v = map(self.split_heads, (q, k, v))
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1736, in _wrapped_call_impl
+    return self._call_impl(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/torch/nn/modules/module.py", line 1747, in _call_impl
+    return forward_call(*args, **kwargs)
+  File "/gpfs/home5/scur2687/erwin/erwin/lib64/python3.9/site-packages/einops/layers/torch.py", line 14, in forward
+    recipe = self._multirecipe[input.ndim]
+KeyError: 2

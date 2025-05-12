@@ -1,0 +1,8 @@
+GPU Memory allocated after: 0.0714 GB
+
+--- Monitoring Results ---
+Total Runtime: 3.57 seconds
+Peak GPU Memory Allocated during execution: 34.6744 GB
+GPU Memory allocated before: 0.0139 GB
+GPU Memory allocated after: 0.0714 GB
+Number of influenced nodes: 1137

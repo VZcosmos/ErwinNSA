@@ -1,0 +1,15 @@
+{"time":"2025-05-06T19:28:52.135150992+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/gpfs/home5/scur2687/erwin/experiments/wandb/run-20250506_192852-yokmxhra/logs/debug-core.log"}
+{"time":"2025-05-06T19:28:52.380472538+02:00","level":"INFO","msg":"created new stream","id":"yokmxhra"}
+{"time":"2025-05-06T19:28:52.380524561+02:00","level":"INFO","msg":"stream: started","id":"yokmxhra"}
+{"time":"2025-05-06T19:28:52.380604012+02:00","level":"INFO","msg":"sender: started","stream_id":"yokmxhra"}
+{"time":"2025-05-06T19:28:52.380607496+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"yokmxhra"}
+{"time":"2025-05-06T19:28:52.380617785+02:00","level":"INFO","msg":"handler: started","stream_id":"yokmxhra"}
+{"time":"2025-05-06T19:28:52.649844346+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-05-06T19:28:53.105455561+02:00","level":"INFO","msg":"stream: closing","id":"yokmxhra"}
+{"time":"2025-05-06T19:28:53.107700149+02:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-05-06T19:28:53.107732538+02:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-05-06T19:28:54.446773569+02:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-05-06T19:28:54.622372396+02:00","level":"INFO","msg":"handler: closed","stream_id":"yokmxhra"}
+{"time":"2025-05-06T19:28:54.622396622+02:00","level":"INFO","msg":"writer: Close: closed","stream_id":"yokmxhra"}
+{"time":"2025-05-06T19:28:54.622427283+02:00","level":"INFO","msg":"sender: closed","stream_id":"yokmxhra"}
+{"time":"2025-05-06T19:28:54.622633352+02:00","level":"INFO","msg":"stream: closed","id":"yokmxhra"}

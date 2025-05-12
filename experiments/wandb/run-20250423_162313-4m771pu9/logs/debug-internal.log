@@ -1,0 +1,7 @@
+{"time":"2025-04-23T16:23:13.470011749+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/gpfs/home5/scur2687/erwin/experiments/wandb/run-20250423_162313-4m771pu9/logs/debug-core.log"}
+{"time":"2025-04-23T16:23:13.718122613+02:00","level":"INFO","msg":"created new stream","id":"4m771pu9"}
+{"time":"2025-04-23T16:23:13.718167915+02:00","level":"INFO","msg":"stream: started","id":"4m771pu9"}
+{"time":"2025-04-23T16:23:13.718189109+02:00","level":"INFO","msg":"handler: started","stream_id":"4m771pu9"}
+{"time":"2025-04-23T16:23:13.718189817+02:00","level":"INFO","msg":"sender: started","stream_id":"4m771pu9"}
+{"time":"2025-04-23T16:23:13.718200276+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"4m771pu9"}
+{"time":"2025-04-23T16:23:13.967739629+02:00","level":"INFO","msg":"Starting system monitor"}

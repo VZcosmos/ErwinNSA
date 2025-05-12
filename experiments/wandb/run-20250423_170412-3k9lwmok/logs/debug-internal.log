@@ -1,0 +1,8 @@
+{"time":"2025-04-23T17:04:12.09279981+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/gpfs/home5/scur2687/erwin/experiments/wandb/run-20250423_170412-3k9lwmok/logs/debug-core.log"}
+{"time":"2025-04-23T17:04:12.329413412+02:00","level":"INFO","msg":"created new stream","id":"3k9lwmok"}
+{"time":"2025-04-23T17:04:12.3294591+02:00","level":"INFO","msg":"stream: started","id":"3k9lwmok"}
+{"time":"2025-04-23T17:04:12.329476426+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"3k9lwmok"}
+{"time":"2025-04-23T17:04:12.329478403+02:00","level":"INFO","msg":"handler: started","stream_id":"3k9lwmok"}
+{"time":"2025-04-23T17:04:12.329490702+02:00","level":"INFO","msg":"sender: started","stream_id":"3k9lwmok"}
+{"time":"2025-04-23T17:04:12.576526753+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-04-23T18:03:28.674873498+02:00","level":"INFO","msg":"api: retrying HTTP error","status":502,"url":"https://api.wandb.ai/files/mmmarchenko/ballformer/3k9lwmok/file_stream","body":"\n<html><head>\n<meta http-equiv=\"content-type\" content=\"text/html;charset=utf-8\">\n<title>502 Server Error</title>\n</head>\n<body text=#000000 bgcolor=#ffffff>\n<h1>Error: Server Error</h1>\n<h2>The server encountered a temporary error and could not complete your request.<p>Please try again in 30 seconds.</h2>\n<h2></h2>\n</body></html>\n"}

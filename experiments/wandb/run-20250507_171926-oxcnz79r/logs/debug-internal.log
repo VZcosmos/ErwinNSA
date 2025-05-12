@@ -1,0 +1,20 @@
+{"time":"2025-05-07T17:19:26.526440824+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/gpfs/home5/scur2687/erwin/experiments/wandb/run-20250507_171926-oxcnz79r/logs/debug-core.log"}
+{"time":"2025-05-07T17:19:26.771537903+02:00","level":"INFO","msg":"created new stream","id":"oxcnz79r"}
+{"time":"2025-05-07T17:19:26.771596989+02:00","level":"INFO","msg":"stream: started","id":"oxcnz79r"}
+{"time":"2025-05-07T17:19:26.771635725+02:00","level":"INFO","msg":"sender: started","stream_id":"oxcnz79r"}
+{"time":"2025-05-07T17:19:26.771643514+02:00","level":"INFO","msg":"handler: started","stream_id":"oxcnz79r"}
+{"time":"2025-05-07T17:19:26.771651956+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"oxcnz79r"}
+{"time":"2025-05-07T17:19:26.961640855+02:00","level":"INFO","msg":"Starting system monitor"}
+{"time":"2025-05-07T17:26:31.048990276+02:00","level":"WARN","msg":"handler: ignoring partial history record","step":0,"current":599}
+{"time":"2025-05-07T17:26:31.049110405+02:00","level":"WARN","msg":"handler: ignoring partial history record","step":0,"current":599}
+{"time":"2025-05-07T17:26:31.049186202+02:00","level":"WARN","msg":"handler: ignoring partial history record","step":0,"current":599}
+{"time":"2025-05-07T17:26:31.049246327+02:00","level":"WARN","msg":"handler: ignoring partial history record","step":0,"current":599}
+{"time":"2025-05-07T17:26:31.049330158+02:00","level":"WARN","msg":"handler: ignoring partial history record","step":0,"current":599}
+{"time":"2025-05-07T17:26:31.617255088+02:00","level":"INFO","msg":"stream: closing","id":"oxcnz79r"}
+{"time":"2025-05-07T17:26:31.617287738+02:00","level":"INFO","msg":"Stopping system monitor"}
+{"time":"2025-05-07T17:26:31.617321311+02:00","level":"INFO","msg":"Stopped system monitor"}
+{"time":"2025-05-07T17:26:32.166256528+02:00","level":"INFO","msg":"fileTransfer: Close: file transfer manager closed"}
+{"time":"2025-05-07T17:26:32.449222918+02:00","level":"INFO","msg":"handler: closed","stream_id":"oxcnz79r"}
+{"time":"2025-05-07T17:26:32.449265137+02:00","level":"INFO","msg":"writer: Close: closed","stream_id":"oxcnz79r"}
+{"time":"2025-05-07T17:26:32.449291798+02:00","level":"INFO","msg":"sender: closed","stream_id":"oxcnz79r"}
+{"time":"2025-05-07T17:26:32.449945933+02:00","level":"INFO","msg":"stream: closed","id":"oxcnz79r"}
