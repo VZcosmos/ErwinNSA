@@ -1,1 +1,0 @@
-{"avg/train/loss":0.4948173463344574,"_timestamp":1.7467393954515126e+09,"global_step":99,"avg/train/mse":1167.5029296875,"_runtime":41.006496109,"_step":99,"avg/val/loss":0.3290296196937561,"checkpoint/best_val_loss":0.3290296196937561,"_wandb":{"runtime":41},"avg/val/mse":776.3329467773438,"train/loss":0.46149060130119324,"train/mse":1088.8697509765625}

@@ -1,2 +1,0 @@
-GPU Memory allocated after: 0.0728 GB
-wandb: WARNING Tried to log to step 0 that is less than the current step 99. Steps must be monotonically increasing, so this data will be ignored. See https://wandb.me/define-metric to log data out of order.

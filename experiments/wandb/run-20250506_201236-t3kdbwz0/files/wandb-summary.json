@@ -1,1 +1,0 @@
-{"stats/forward_flops":108650570240,"stats/before_gpu_memory":0.004780292510986328,"_runtime":346.150768071,"_wandb":{"runtime":346},"stats/n_influenced":7172,"stats/after_gpu_memory":0.012714862823486328,"_step":0,"_timestamp":1.7465555028072147e+09,"stats/runtime":0.8701860904693604,"stats/peak_gpu_memory":2.512274742126465}

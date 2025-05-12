@@ -1,1 +1,0 @@
-{"_timestamp":1.746556265714622e+09,"_step":0,"stats/after_gpu_memory":0.012714862823486328,"stats/peak_gpu_memory":2.512274742126465,"stats/n_influenced":7172,"_runtime":350.148210842,"stats/before_gpu_memory":0.004780292510986328,"_wandb":{"runtime":350},"stats/forward_flops":108650570240,"stats/runtime":0.8620431423187256}

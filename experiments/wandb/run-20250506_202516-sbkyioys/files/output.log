@@ -1,2 +1,0 @@
-GPU Memory allocated after: 0.0127 GB
-Batch keys: dict_keys(['node_positions', 'target', 'num_nodes', 'batch_idx', 'edge_index'])

@@ -302,7 +302,6 @@ class SparseAttention(Module):
         inp,
         sliding_window_flex_mask = None,
         fine_selection_flex_mask = None,
-        pos_emb = None # add positional embedding for sliding window attention
     ):
 
         batch, seq_len, scale, heads, kv_heads, device = *inp.shape[:2], self.scale, self.heads, self.kv_heads, inp.device
@@ -319,12 +318,6 @@ class SparseAttention(Module):
         # maybe prenorm
 
         inp = self.norm(inp)
-
-        # add positional embedding for sliding window attention
-        if pos_emb is not None:
-            inp_sliding = inp + pos_emb
-        else:
-            inp_sliding = inp
 
         # queries, keys, values
 
@@ -533,14 +526,9 @@ class SparseAttention(Module):
 
         # 3. overlapping sliding window, this is unsurprising and expected - `s` for sliding
 
-        # add positional embedding for sliding window attention
-        q_s, k_s, v_s = self.to_qkv(inp_sliding).split(self.qkv_split, dim = -1)
-
-        q_s, k_s, v_s = map(self.split_heads, (q_s, k_s, v_s))
-
-        sq = q_s
-        sk = k_s
-        sv = v_s
+        sq = q
+        sk = k
+        sv = v
 
         if exists(sliding_window_flex_mask):
             sliding_window_attn_out = flex_attention(sq, sk, sv, block_mask = sliding_window_flex_mask, enable_gqa = True)

@@ -1,7 +1,0 @@
-{"time":"2025-04-23T16:07:21.755397787+02:00","level":"INFO","msg":"stream: starting","core version":"0.19.9","symlink path":"/gpfs/home5/scur2687/erwin/experiments/wandb/run-20250423_160721-amm2k5pf/logs/debug-core.log"}
-{"time":"2025-04-23T16:07:21.992177177+02:00","level":"INFO","msg":"created new stream","id":"amm2k5pf"}
-{"time":"2025-04-23T16:07:21.992226884+02:00","level":"INFO","msg":"stream: started","id":"amm2k5pf"}
-{"time":"2025-04-23T16:07:21.992245261+02:00","level":"INFO","msg":"writer: Do: started","stream_id":"amm2k5pf"}
-{"time":"2025-04-23T16:07:21.992249432+02:00","level":"INFO","msg":"sender: started","stream_id":"amm2k5pf"}
-{"time":"2025-04-23T16:07:21.992259842+02:00","level":"INFO","msg":"handler: started","stream_id":"amm2k5pf"}
-{"time":"2025-04-23T16:07:22.227722565+02:00","level":"INFO","msg":"Starting system monitor"}
