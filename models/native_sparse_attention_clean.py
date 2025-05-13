@@ -289,7 +289,7 @@ class SparseAttention(Module):
         self.combine_heads = nn.Linear(dim_inner, dim, bias = False)
 
     @torch.no_grad()
-    def create_attention_mask(self, pos: torch.Tensor):
+    def create_attention_bias(self, pos: torch.Tensor):
         """ Distance-based attention bias (eq. 10). """
         pos = rearrange(pos, '(n m) d -> n m d', m=self.compress_block_size)
         return self.sigma_att * torch.cdist(pos, pos, p=2).unsqueeze(1)
@@ -300,7 +300,10 @@ class SparseAttention(Module):
 
 
     def pos_bias_score_mod(self, score, b, h, q_idx, kv_idx):
-        return score + self.pos_attn_bias
+        ball_idx = q_idx // self.ball_size
+        q_intra_ball_idx = q_idx % self.ball_size
+        kv_intra_ball_idx = kv_idx % self.ball_size
+        return score + self.pos_attn_bias[ball_idx, h, q_intra_ball_idx, kv_intra_ball_idx]
 
     def forward(
         self,
@@ -548,7 +551,7 @@ class SparseAttention(Module):
         sk = k
         sv = v
 
-        self.pos_attn_bias = self.create_attention_mask(pos)
+        self.pos_attn_bias = self.create_attention_bias(pos)
         local_attn_out = self.local_attn(sq, sk, sv)
 
         # combine strategies
