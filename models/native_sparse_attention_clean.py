@@ -31,8 +31,8 @@ flex_attention = None
 
 try:
     from torch.nn.attention.flex_attention import flex_attention, create_block_mask
-    if torch.cuda.is_available():
-        flex_attention = torch.compile(flex_attention)
+    # if torch.cuda.is_available():
+    #     flex_attention = torch.compile(flex_attention)
 except ImportError:
     pass
 
@@ -291,7 +291,7 @@ class SparseAttention(Module):
     @torch.no_grad()
     def create_attention_bias(self, pos: torch.Tensor):
         """ Distance-based attention bias (eq. 10). """
-        pos = rearrange(pos, '(n m) d -> n m d', m=self.compress_block_size)
+        pos = rearrange(pos, '(n m) d -> n m d', m=self.ball_size)
         return self.sigma_att * torch.cdist(pos, pos, p=2).unsqueeze(1)
 
     def local_attention_mask_mod(self, batch, head, q_idx, kv_idx):
