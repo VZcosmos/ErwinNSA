@@ -343,10 +343,10 @@ class SparseAttention(Module):
             k_compress_input, v_compress_input = tuple(t.reshape(batch, kv_heads, 0, self.compress_block_size, self.dim_head) for t in (k_compress_input, v_compress_input))
 
         # add the intra block positions
-
-        if not is_empty(k_compress_input):
-            k_compress_input = einx.add('b h w n d, h n d', k_compress_input, self.k_intrablock_positions)
-            v_compress_input = einx.add('b h w n d, h n d', v_compress_input, self.v_intrablock_positions)
+        # delete intra block position embedding
+        # if not is_empty(k_compress_input):
+        #     k_compress_input = einx.add('b h w n d, h n d', k_compress_input, self.k_intrablock_positions)
+        #     v_compress_input = einx.add('b h w n d, h n d', v_compress_input, self.v_intrablock_positions)
 
         run_k, run_v = k, v
 
