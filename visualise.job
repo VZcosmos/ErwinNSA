@@ -1,0 +1,23 @@
+#!/bin/bash
+
+#SBATCH --partition=gpu_mig
+#SBATCH --gpus=1
+#SBATCH --job-name=Visualise
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=9
+#SBATCH --time=02:00:00
+#SBATCH --output=visualisation_output.out
+
+module purge
+module load 2023
+module load Anaconda3/2023.07-2
+
+# Activate your environment
+# source activate erwin
+source erwin/bin/activate
+# Check whether the GPU is available
+# cd experiments
+export WANDB_API_KEY=72b9aaecbf5c166c940ca899cfdf325d72b22b65
+# export WANDB_MODE=disabled
+# srun python train_shapenet.py --use-wandb 1 --size small --model erwin --data-path "../../nico_directory/shapenet_car_processed"
+srun python tree_build_visualisation.py
