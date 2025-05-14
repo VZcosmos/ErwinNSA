@@ -5,8 +5,9 @@
 #SBATCH --job-name=ErwinNSATest
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=9
-#SBATCH --time=02:00:00
-#SBATCH --output=erwin_nsa_test_debug.out
+
+#SBATCH --time=01:00:00
+#SBATCH --output=erwin_nsa_triton.out
 
 module purge
 module load 2024
@@ -19,4 +20,5 @@ source erwin/bin/activate
 cd experiments
 export WANDB_API_KEY=a6910fe73e66c089df72dd1ee97aef2b3c7264dd
 # export WANDB_MODE=disabled
-srun python train_shapenet.py --use-wandb 1 --size small --model erwin_nsa --data-path "../../nico_directory/shapenet_car_processed" --num-epochs 5
+
+srun python train_shapenet.py --use-wandb 1 --size small --model erwin_nsa --data-path "../../nico_directory/shapenet_car_processed" --num-epochs 4000

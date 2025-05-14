@@ -408,17 +408,18 @@ class ErwinTransformer(nn.Module):
 
 class BallNSA(nn.Module):
     """ NSA on a ball tree. """
-    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, sliding_window_size: int, num_selected_blocks: int, dimensionality: int = 3):
+    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, local_ball_size: int, num_selected_blocks: int, dimensionality: int = 3):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
         self.compress_ball_size = compress_ball_size
-        self.sliding_window_size = sliding_window_size
+        self.local_ball_size = local_ball_size
         # TEMPORARY
-        self.ball_size = sliding_window_size
+        self.ball_size = local_ball_size
 
         self.nsa = SparseAttention(dim, dim//num_heads, num_heads,
-                                   sliding_window_size, compress_ball_size,
+                                   self.ball_size,
+                                   compress_ball_size,
                                    compress_ball_size,
                                    compress_ball_size, num_selected_blocks)
         self.pe_proj = nn.Linear(dimensionality, dim)
@@ -443,20 +444,20 @@ class BallNSA(nn.Module):
         # print(f'input to NSA shape: {x.shape}')
         if x.ndim == 2:
             x = x.unsqueeze(0)
-            x = self.nsa(x)
+            x = self.nsa(x, pos)
             x = x.squeeze(0)
         else:
-            x = self.nsa(x)
+            x = self.nsa(x, pos)
         # print(f'output from NSA shape: {x.shape}')
         return x
 
 
 class BallNSABlock(nn.Module):
-    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, sliding_window_size: int, num_selected_blocks: int, mlp_ratio: int, dimensionality: int = 3):
+    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, local_ball_size: int, num_selected_blocks: int, mlp_ratio: int, dimensionality: int = 3):
         super().__init__()
         self.norm1 = nn.RMSNorm(dim)
         self.norm2 = nn.RMSNorm(dim)
-        self.BNSA = BallNSA(dim, num_heads, compress_ball_size, sliding_window_size, num_selected_blocks, dimensionality)
+        self.BNSA = BallNSA(dim, num_heads, compress_ball_size, local_ball_size, num_selected_blocks, dimensionality)
         self.swiglu = SwiGLU(dim, dim * mlp_ratio)
 
     def forward(self, x: torch.Tensor, pos: torch.Tensor):
@@ -471,7 +472,7 @@ class BasicNSALayer(nn.Module):
         dim: int,
         num_heads: int,
         compress_ball_size: int,
-        sliding_window_size: int,
+        local_ball_size: int,
         num_selected_blocks: int,
         mlp_ratio: int,
         rotate: bool,
@@ -480,7 +481,7 @@ class BasicNSALayer(nn.Module):
     ):
         super().__init__()
 
-        self.blocks = nn.ModuleList([BallNSABlock(dim, num_heads, compress_ball_size, sliding_window_size, num_selected_blocks, mlp_ratio, dimensionality) for _ in range(depth)])
+        self.blocks = nn.ModuleList([BallNSABlock(dim, num_heads, compress_ball_size, local_ball_size, num_selected_blocks, mlp_ratio, dimensionality) for _ in range(depth)])
         self.rotate = [i % 2 for i in range(depth)] if rotate else [False] * depth
 
     def forward(self, node: Node) -> Node:
@@ -529,7 +530,7 @@ class NSABallformer(nn.Module):
         depth: int,
         num_heads: int,
         compress_ball_size: int,
-        sliding_window_size: int,
+        local_ball_size: int,
         num_selected_blocks: int,
         mlp_ratio: int = 4,
         dimensionality: int = 3,
@@ -548,7 +549,7 @@ class NSABallformer(nn.Module):
                                              dim=c_hidden,
                                              num_heads=num_heads,
                                              compress_ball_size=compress_ball_size,
-                                             sliding_window_size=sliding_window_size,
+                                             local_ball_size=local_ball_size,
                                              num_selected_blocks=num_selected_blocks,
                                              rotate=rotate > 0,
                                              mlp_ratio=mlp_ratio,
