@@ -296,7 +296,7 @@ class SparseAttention(Module):
 
     def local_attention_mask_mod(self, batch, head, q_idx, kv_idx):
         # True if query and key indices lie in the same B-sized block
-        return (q_idx // self.compress_block_size) == (kv_idx // self.compress_block_size)
+        return (q_idx // self.ball_size) == (kv_idx // self.ball_size)
 
 
     def pos_bias_score_mod(self, score, b, h, q_idx, kv_idx):
