@@ -139,8 +139,34 @@ def attend(
     sim = einsum(q, k, 'b h qh i d, b h j d -> b h qh i j') * scale
 
     if exists(attn_bias):
-        attn_bias = attn_bias.unsqueeze(2).repeat(q.shape[0]//attn_bias.shape[0], 1, 1, 1, 1)
-        sim = sim + attn_bias
+        # attn_bias initial shape: [num_windows, total_query_heads, ball_size, ball_size]
+        # q shape after rearrange: [eff_batch, kv_heads, num_grouped_queries, ball_size, head_dim]
+        # k shape: [eff_batch, kv_heads, ball_size, head_dim]
+        # sim shape: [eff_batch, kv_heads, num_grouped_queries, ball_size, ball_size]
+
+        effective_batch_dim = q.shape[0]
+        kv_heads_dim = k.shape[1]
+        num_grouped_queries_dim = q.shape[2]
+
+        if attn_bias.shape[0] != effective_batch_dim:
+            if effective_batch_dim % attn_bias.shape[0] != 0:
+                raise ValueError(
+                    f"Effective batch dimension ({effective_batch_dim}) must be a multiple of attn_bias's first dimension ({attn_bias.shape[0]})"
+                )
+            num_batch_repeats = effective_batch_dim // attn_bias.shape[0]
+            attn_bias_expanded = attn_bias.repeat(num_batch_repeats, 1, 1, 1)
+        else:
+            attn_bias_expanded = attn_bias
+
+        attn_bias_reshaped = attn_bias_expanded.view(
+            effective_batch_dim,
+            kv_heads_dim,
+            num_grouped_queries_dim,
+            attn_bias_expanded.shape[2],  # ball_size (query dimension)
+            attn_bias_expanded.shape[3]   # ball_size (key dimension)
+        )
+        
+        sim = sim + attn_bias_reshaped
 
     mask_value = max_neg_value(sim)
 
