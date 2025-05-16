@@ -126,7 +126,8 @@ def attend(
     q, k, v,
     mask = None,
     return_sim = False,
-    scale = None
+    scale = None,
+    attn_bias = None
 ):
     scale = default(scale, q.shape[-1] ** -0.5)
 
@@ -136,6 +137,10 @@ def attend(
     q = rearrange(q, 'b (h qh) ... -> b h qh ...', qh = num_grouped_queries)
 
     sim = einsum(q, k, 'b h qh i d, b h j d -> b h qh i j') * scale
+
+    if exists(attn_bias):
+        attn_bias = attn_bias.unsqueeze(2).repeat(q.shape[0]//attn_bias.shape[0], 1, 1, 1, 1)
+        sim = sim + attn_bias
 
     mask_value = max_neg_value(sim)
 
@@ -551,8 +556,15 @@ class SparseAttention(Module):
         sk = k
         sv = v
 
-        self.pos_attn_bias = self.create_attention_bias(pos)
-        local_attn_out = self.local_attn(sq, sk, sv)
+        pos_attn_bias = self.create_attention_bias(pos)
+        seq_len = sk.shape[-2]
+        sk, sv, sq = map(pad_to_multiple, (sk, sv, sq))
+
+        sq, sk, sv = tuple(rearrange(t, 'b h (w n) d -> (b w) h n d', n = self.ball_size) for t in (sq, sk, sv))
+
+        local_attn_out = attend(sq, sk, sv, mask = None, attn_bias = pos_attn_bias)
+        local_attn_out = rearrange(local_attn_out, '(b w) h n d -> b h (w n) d', b = batch)
+        local_attn_out = local_attn_out[..., :seq_len, :]
 
         # combine strategies
 
