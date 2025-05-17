@@ -113,21 +113,20 @@ def get_leaf_values(nested_dict):
             leaf_values.append(value)
     return leaf_values
 
-
 def measure_interaction_batch(model, x, pos, i_s, bs, batch):
     x = x.detach().clone().requires_grad_(True)
-    N = x.shape[0]
+    N, F = x.shape
     batch_idx = torch.repeat_interleave(torch.arange(bs), N).cuda()
     
     influences = torch.zeros((len(i_s), N), device=x.device)
 
-    for j in range(N):
+    for idx, j in enumerate(i_s):
         def f(input_x):
             return model(input_x, pos, batch_idx, edge_index=batch['edge_index'], num_nodes=batch['num_nodes'])[j]
         jacobian = torch.autograd.functional.jacobian(f, x, create_graph=False)
-        #print(f'Jacobian {jacobian.shape}')
-        for num_i, i in enumerate(i_s):
-            influences[num_i, j] = (jacobian[:, i, :] ** 2).sum()
+        # jacobian shape: (feature_dim, N, F)
+        # For each input node i, sum the squared jacobian over output and feature dimensions
+        influences[idx] = (jacobian ** 2).sum(dim=(0, 2))
 
     return influences
 
@@ -144,6 +143,7 @@ def evaluate_interactions_from_batch(model, batch, config, i_s=None):
 
     influences = measure_interaction_batch(model_from_node_features, node_features, node_positions, i_s, bs, batch)
     return (influences[0] > 1e-10).sum().item()
+
 
 def benchmark_flops(model, data_loader, config):
     """
