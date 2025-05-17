@@ -126,7 +126,8 @@ def attend(
     q, k, v,
     mask = None,
     return_sim = False,
-    scale = None
+    scale = None,
+    attn_bias = None
 ):
     scale = default(scale, q.shape[-1] ** -0.5)
 
@@ -136,6 +137,36 @@ def attend(
     q = rearrange(q, 'b (h qh) ... -> b h qh ...', qh = num_grouped_queries)
 
     sim = einsum(q, k, 'b h qh i d, b h j d -> b h qh i j') * scale
+
+    if exists(attn_bias):
+        # attn_bias initial shape: [num_windows, total_query_heads, ball_size, ball_size]
+        # q shape after rearrange: [eff_batch, kv_heads, num_grouped_queries, ball_size, head_dim]
+        # k shape: [eff_batch, kv_heads, ball_size, head_dim]
+        # sim shape: [eff_batch, kv_heads, num_grouped_queries, ball_size, ball_size]
+
+        effective_batch_dim = q.shape[0]
+        kv_heads_dim = k.shape[1]
+        num_grouped_queries_dim = q.shape[2]
+
+        if attn_bias.shape[0] != effective_batch_dim:
+            if effective_batch_dim % attn_bias.shape[0] != 0:
+                raise ValueError(
+                    f"Effective batch dimension ({effective_batch_dim}) must be a multiple of attn_bias's first dimension ({attn_bias.shape[0]})"
+                )
+            num_batch_repeats = effective_batch_dim // attn_bias.shape[0]
+            attn_bias_expanded = attn_bias.repeat(num_batch_repeats, 1, 1, 1)
+        else:
+            attn_bias_expanded = attn_bias
+
+        attn_bias_reshaped = attn_bias_expanded.view(
+            effective_batch_dim,
+            kv_heads_dim,
+            num_grouped_queries_dim,
+            attn_bias_expanded.shape[2],  # ball_size (query dimension)
+            attn_bias_expanded.shape[3]   # ball_size (key dimension)
+        )
+        
+        sim = sim + attn_bias_reshaped
 
     mask_value = max_neg_value(sim)
 
@@ -296,7 +327,7 @@ class SparseAttention(Module):
 
     def local_attention_mask_mod(self, batch, head, q_idx, kv_idx):
         # True if query and key indices lie in the same B-sized block
-        return (q_idx // self.compress_block_size) == (kv_idx // self.compress_block_size)
+        return (q_idx // self.ball_size) == (kv_idx // self.ball_size)
 
 
     def pos_bias_score_mod(self, score, b, h, q_idx, kv_idx):
@@ -487,7 +518,7 @@ class SparseAttention(Module):
                 fv = rearrange(fv, 'b h (w n) d -> b h w n d', w = num_fine_blocks)
 
                 # get_at("b h [w] j d, b h i selected -> b h i selected j d", fkv, selected_block_indices)
-
+                '''
                 if self.query_heads_share_selected_kv:
                     fk = repeat(fk, 'b h w j d -> b h i w j d', i = selected_block_indices.shape[2])
                     fv = repeat(fv, 'b h w j d -> b h i w j d', i = selected_block_indices.shape[2])
@@ -499,6 +530,42 @@ class SparseAttention(Module):
 
                 fk = fk.gather(3, selected_block_indices)
                 fv = fv.gather(3, selected_block_indices)
+                '''
+                # --------------------------------------------------------------------
+                # Inputs
+                #   fk, fv : [B, H, W, J, D]         (K / V for every window W)
+                #   selected_block_indices : [B, H, I, S]   (window-IDs each query wants)
+                #           B = batch, H = heads, I = #queries per head, S = top-k
+                # --------------------------------------------------------------------
+
+                B, H, W, J, D = fk.shape
+                I, S          = selected_block_indices.shape[2:]
+
+                # 1) work on (B·H) rows at once
+                fk  = fk .view(B*H, W, J, D)
+                fv  = fv .view(B*H, W, J, D)
+                idx = selected_block_indices.reshape(B*H, -1)           # (BH, I·S)
+
+                # 2) unique windows and the reverse mapping
+                uniq, inv = torch.unique(idx, return_inverse=True)       # uniq: (U,)  inv: (BH·I·S,)
+
+                # 3) pull each needed window once ------------- (index_select = fast C++)
+                fk_u = fk.index_select(1, uniq)                          # (BH, U, J, D)
+                fv_u = fv.index_select(1, uniq)
+
+                # 4) map them back to the per-query order
+                fk_sel = fk_u.view(B*H, -1, J, D)[
+                        torch.arange(B*H, device=fk.device).unsqueeze(-1), inv
+                        ].view(B, H, I, S, J, D)
+
+                fv_sel = fv_u.view(B*H, -1, J, D)[
+                        torch.arange(B*H, device=fv.device).unsqueeze(-1), inv
+                        ].view(B, H, I, S, J, D)
+                fk, fv = fk_sel, fv_sel
+                # --------------------------------------------------------------------
+
+                # fk_sel / fv_sel are exactly what the old repeat-→gather gave you,
+                # but with no data duplication and no 16 GiB grad buffer.
 
                 # differential topk gating
 
@@ -551,8 +618,15 @@ class SparseAttention(Module):
         sk = k
         sv = v
 
-        self.pos_attn_bias = self.create_attention_bias(pos)
-        local_attn_out = self.local_attn(sq, sk, sv)
+        pos_attn_bias = self.create_attention_bias(pos)
+        seq_len = sk.shape[-2]
+        sk, sv, sq = map(pad_to_multiple, (sk, sv, sq))
+
+        sq, sk, sv = tuple(rearrange(t, 'b h (w n) d -> (b w) h n d', n = self.ball_size) for t in (sq, sk, sv))
+
+        local_attn_out = attend(sq, sk, sv, mask = None, attn_bias = pos_attn_bias)
+        local_attn_out = rearrange(local_attn_out, '(b w) h n d -> b h (w n) d', b = batch)
+        local_attn_out = local_attn_out[..., :seq_len, :]
 
         # combine strategies
 

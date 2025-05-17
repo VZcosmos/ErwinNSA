@@ -9,12 +9,54 @@ import time
 import os
 from tqdm import tqdm
 from torchtnt.utils.flops import FlopTensorDispatchMode
+import torch.profiler
+import matplotlib.pyplot as plt
+import numpy as np
+
+
+def plot_log_distribution(aTensor: torch.Tensor, aOutputPath: str) -> None:
+    if aTensor.ndim != 1:
+        raise ValueError("Input tensor must be 1-dimensional.")
+
+    myValues = aTensor.detach().cpu().numpy()
+    myValues = myValues[myValues > 0]  # log scale can't handle zero or negative
+
+    if len(myValues) == 0:
+        raise ValueError("Tensor must contain positive values for log scale.")
+
+    myLogValues = np.log10(myValues)
+
+    plt.figure()
+    plt.hist(myLogValues, bins=50, edgecolor='black')
+    plt.xlabel('log10(Value)')
+    plt.ylabel('Count')
+    plt.title('Log-Scaled Value Distribution')
+    plt.tight_layout()
+    plt.savefig(aOutputPath)
+    plt.close()
 
 
 def setup_wandb_logging(model, config, project_name="ballformer"):
     wandb.init(project=project_name, config=config, name=config["model"] + '_' + config["experiment"])
     wandb.watch(model)
     wandb.config.update({"num_parameters": sum(p.numel() for p in model.parameters() if p.requires_grad)}, allow_val_change=True)
+
+
+files_to_save = []
+
+def path_to_file(config, file_name):
+    if config.get("use_wandb", False):
+        file_path = os.path.join(wandb.run.dir, file_name)
+        files_to_save.append(file_path)
+        return file_path
+    else:
+        return os.path.join(".", file_name)
+
+def path_to_dir(config, dir_name):
+    if config.get("use_wandb", False):
+        return os.path.join(wandb.run.dir, dir_name)
+    else:
+        return os.path.join(".", dir_name)
 
 
 def save_checkpoint(model, optimizer, scheduler, config, val_loss, global_step):
@@ -60,10 +102,12 @@ def load_checkpoint(model, optimizer, scheduler, config):
     return checkpoint['val_loss'], checkpoint['global_step']
 
 
-def train_step(model, batch, optimizer, scheduler):
+def train_step(model, batch, optimizer, scheduler, global_step, config):
     optimizer.zero_grad()
     stat_dict = model.training_step(batch)
     stat_dict["train/loss"].backward()
+    if global_step == 0 or global_step == 10:
+        torch.cuda.memory._dump_snapshot(path_to_file(config, f"spike_{global_step}.pickle.gz"))
     optimizer.step()
     if scheduler is not None:
         scheduler.step()
@@ -116,18 +160,18 @@ def get_leaf_values(nested_dict):
 
 def measure_interaction_batch(model, x, pos, i_s, bs, batch):
     x = x.detach().clone().requires_grad_(True)
-    N = x.shape[0]
+    N, F = x.shape
     batch_idx = torch.repeat_interleave(torch.arange(bs), N).cuda()
     
     influences = torch.zeros((len(i_s), N), device=x.device)
 
-    for j in range(N):
+    for idx, j in enumerate(i_s):
         def f(input_x):
             return model(input_x, pos, batch_idx, edge_index=batch['edge_index'], num_nodes=batch['num_nodes'])[j]
         jacobian = torch.autograd.functional.jacobian(f, x, create_graph=False)
-        #print(f'Jacobian {jacobian.shape}')
-        for num_i, i in enumerate(i_s):
-            influences[num_i, j] = (jacobian[:, i, :] ** 2).sum()
+        # jacobian shape: (feature_dim, N, F)
+        # For each input node i, sum the squared jacobian over output and feature dimensions
+        influences[idx] = (jacobian ** 2).sum(dim=(0, 2))
 
     return influences
 
@@ -143,7 +187,9 @@ def evaluate_interactions_from_batch(model, batch, config, i_s=None):
         i_s = random.sample(range(node_features.shape[0]), 1)
 
     influences = measure_interaction_batch(model_from_node_features, node_features, node_positions, i_s, bs, batch)
-    return (influences[0] > 1e-10).sum().item()
+    plot_log_distribution(influences[0], path_to_file(config, "influences.png"))
+    return (influences[0] > 0).sum().item()
+
 
 def benchmark_flops(model, data_loader, config):
     """
@@ -182,10 +228,24 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if device.type == "cuda":
         # Reset peak memory stats for the target device before the function call
-        torch.cuda.reset_peak_memory_stats(device)
+        #torch.cuda.reset_peak_memory_stats(device)
         memory_before_gb = torch.cuda.memory_allocated(device) / (1024**3)
 
     # benchmark_flops(model, train_loader, config)
+    prof = None
+    if config.get("profile", False):
+        os.makedirs(path_to_file(config, "tb_trace"), exist_ok=True)
+
+        prof = torch.profiler.profile(
+            schedule=torch.profiler.schedule(wait=1, warmup=1, active=3),
+            profile_memory=True,
+            record_shapes=True,
+            with_stack=True,
+            with_flops=True,
+            with_modules=True,
+            on_trace_ready=torch.profiler.tensorboard_trace_handler(path_to_dir(config, "tb_trace"))
+        )
+        prof.__enter__()
 
     while global_step < max_steps:
         iterator = tqdm(train_loader, desc=f"Training (step {global_step + 1}/{max_steps})") if use_tqdm else train_loader
@@ -209,7 +269,7 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
                 else:
                     print(f"Steps per second: {steps_per_second:.2f}")
             
-            stat_dict = train_step(model, batch, optimizer, scheduler)
+            stat_dict = train_step(model, batch, optimizer, scheduler, global_step, config)
             
             for k, v in stat_dict.items():
                 if "lr" not in k:
@@ -250,6 +310,8 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
                     for k in loss_keys: 
                         print(f"Validation {k}: {val_stats[k]:.4f}")
             
+            if prof is not None:
+                prof.step()
             global_step += 1
 
     if test_loader is not None and config.get('test', False):
@@ -282,27 +344,38 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
             f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
         )
 
-    # n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
+    n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
     if config.get("use_wandb", False):
-        wandb.log({"stats/runtime": runtime_seconds}, step=0)
-        wandb.log({"stats/peak_gpu_memory": peak_memory_gb}, step=0)
-        wandb.log({"stats/before_gpu_memory": memory_before_gb}, step=0)
-        wandb.log({"stats/after_gpu_memory": memory_after_gb}, step=0)
-        # wandb.log({"stats/n_influenced": n_influenced}, step=0)
-    else:
-        print("\n--- Monitoring Results ---")
-        print(f"Total Runtime: {runtime_seconds:.2f} seconds")
-        print(
-            f"Peak GPU Memory Allocated during execution: {peak_memory_gb:.4f} GB"
-        )
-        print(
-            f"GPU Memory allocated before: {memory_before_gb:.4f} GB"
-        )
-        print(
-            f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
-        )
-        # print(
-        #     f"Number of influenced nodes: {n_influenced}"
-        # )
+        wandb.log({"stats/runtime": runtime_seconds})
+        wandb.log({"stats/peak_gpu_memory": peak_memory_gb})
+        wandb.log({"stats/before_gpu_memory": memory_before_gb})
+        wandb.log({"stats/after_gpu_memory": memory_after_gb})
 
+        wandb.log({"stats/n_influenced": n_influenced})
+        for file in files_to_save:
+            print(f"Saving {file} to wandb")
+            wandb.save(file)
+    print("\n--- Monitoring Results ---")
+    print(f"Total Runtime: {runtime_seconds:.2f} seconds")
+    print(
+        f"Peak GPU Memory Allocated during execution: {peak_memory_gb:.4f} GB"
+    )
+    print(
+        f"GPU Memory allocated before: {memory_before_gb:.4f} GB"
+    )
+    print(
+        f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
+    )
+    print(
+        f"Number of influenced nodes: {n_influenced}"
+    )
+
+    if prof is not None:
+        prof.__exit__(None, None, None)
+        snapshot_path = path_to_file(config, "snapshot.pickle.gz")
+        torch.cuda.memory._dump_snapshot(snapshot_path)
+        if config.get("use_wandb", False):
+            wandb.save(os.path.join(path_to_dir(config, "tb_trace"), "*"))
+            wandb.save(snapshot_path)
+    
     return model
