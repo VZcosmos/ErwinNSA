@@ -95,6 +95,7 @@ erwin_nsa_configs = {
         "compress_ball_size": 32,
         "local_ball_size": 512,
         "num_selected_blocks": 16,
+        "min_nsa_heads": 16,
     },
 }
 
@@ -162,8 +163,10 @@ if __name__ == "__main__":
         raise NotImplementedError(f"Unknown model: {args.model}")
     
     main_model = model_cls[args.model](**model_config)
-    # COMMENT THIS!!!!! THIS COULD SLOW DOWN TRAINING BUT IS NEEDED FOR PROFILING
-    # torch.cuda.memory._record_memory_history()
+    if args.profile:
+        # THIS COULD SLOW DOWN TRAINING BUT IS NEEDED FOR PROFILING
+        print("Memory profiling enabled!")
+        torch.cuda.memory._record_memory_history()
 
     torch.cuda.reset_peak_memory_stats(torch.device("cuda"))
     model = ShapenetCarModel(main_model).cuda()

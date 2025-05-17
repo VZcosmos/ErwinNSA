@@ -8,7 +8,6 @@ import torch
 import time
 import os
 from tqdm import tqdm
-from torchtnt.utils.flops import FlopTensorDispatchMode
 import torch.profiler
 import matplotlib.pyplot as plt
 import numpy as np
@@ -197,7 +196,7 @@ def benchmark_flops(model, data_loader, config):
     """
     sample_batch = next(iter(data_loader))
     sample_batch = {k: v.cuda() for k, v in sample_batch.items()}
-
+    from torchtnt.utils.flops import FlopTensorDispatchMode
     with FlopTensorDispatchMode(model) as ftdm:
         res = model.training_step(sample_batch)["train/loss"]
         flops_forward = copy.deepcopy(ftdm.flop_counts)

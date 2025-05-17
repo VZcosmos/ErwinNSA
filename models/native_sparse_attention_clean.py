@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from torch import nn, arange, stack, cat, tensor, Tensor
 from torch.nn import Module, ModuleList
 
+from native_sparse_attention.ops.parallel import parallel_nsa_topk, ParallelNSAFunction
 # einstein notation
 
 import einx
@@ -206,15 +207,21 @@ class SparseAttention(Module):
         query_heads_share_selected_kv = True, # if set to True, importance score is averaged across query heads to select top-n buckets of kv per kv head - but can be set to False for each query head within a group to look at different sets of kv buckets. will be more memory and compute of course
         compress_mlp: Module | None = None,
         compress_mlp_expand_factor = 1.,
+        naive_fine_attn = False,
         strategy_combine_mlp: Module | None = None
     ):
         super().__init__()
+
+        self.naive_fine_attn = naive_fine_attn
 
         # attention heads
         # handling gqa if `kv_heads` is set
 
         kv_heads = default(kv_heads, heads)
-        assert kv_heads <= heads and divisible_by(heads, kv_heads)
+        # assert kv_heads <= heads and divisible_by(heads, kv_heads)
+        print("!!! OVERRIDING IN A DUMB WAY")
+        heads = 16
+        kv_heads = 1
 
         self.heads = heads
         self.dim_head = dim_head
@@ -467,36 +474,171 @@ class SparseAttention(Module):
             importance_scores = importance_scores.softmax(dim = -1)
             importance_scores = importance_scores[..., 1:]
 
+        if self.naive_fine_attn:
         # handle if number of total blocks is less than number to select for fine attention
+            
+            fq = q
+            fk = k
+            fv = v
 
-        fq = q
-        fk = k
-        fv = v
+            num_selected = min(num_selected, importance_scores.shape[-1])
+            has_selected_kv_for_fine_attn = num_selected > 0
 
-        num_selected = min(num_selected, importance_scores.shape[-1])
-        has_selected_kv_for_fine_attn = num_selected > 0
+            remainder = fine_divisible_seq_len - seq_len
+            pad_to_multiple = partial(pad_at_dim, pad = (0, remainder), dim = -2)
 
-        remainder = fine_divisible_seq_len - seq_len
-        pad_to_multiple = partial(pad_at_dim, pad = (0, remainder), dim = -2)
+            if has_selected_kv_for_fine_attn:
 
-        if has_selected_kv_for_fine_attn:
+                # get the top-n kv segments for fine attention
 
-            # get the top-n kv segments for fine attention
+                selected_importance_values, selected_block_indices = importance_scores.topk(num_selected, dim = -1)
 
-            selected_importance_values, selected_block_indices = importance_scores.topk(num_selected, dim = -1)
+                gates = straight_through(selected_importance_values, 1.) if self.use_diff_topk else None
 
-            gates = straight_through(selected_importance_values, 1.) if self.use_diff_topk else None
+                if exists(fine_selection_flex_mask):
+                    assert not self.use_diff_topk, 'differential topk is not available for flex attention'
 
-            if exists(fine_selection_flex_mask):
-                assert not self.use_diff_topk, 'differential topk is not available for flex attention'
+                    # flex attention for the selection for fine attention
 
-                # flex attention for the selection for fine attention
+                    fine_block_mask = fine_selection_flex_mask(selected_block_indices, num_grouped_queries = fine_num_grouped_queries)
 
-                fine_block_mask = fine_selection_flex_mask(selected_block_indices, num_grouped_queries = fine_num_grouped_queries)
+                    fine_attn_out = flex_attention(fq, fk, fv, block_mask = fine_block_mask, enable_gqa = True)
 
-                fine_attn_out = flex_attention(fq, fk, fv, block_mask = fine_block_mask, enable_gqa = True)
+                else:
+                    fmask = selected_importance_values > 1e-10
+
+                    if seq_len < fine_divisible_seq_len:
+                        fk, fv, fq = map(pad_to_multiple, (fk, fv, fq))
+
+                        fmask = pad_at_dim(fmask, (0, remainder), value = False, dim = -2)
+
+                        selected_block_indices = pad_at_dim(selected_block_indices, (0, remainder), value = 0, dim = -2)
+
+                        if exists(gates):
+                            gates = pad_at_dim(gates, (0, remainder), value = 0, dim = -2)
+
+                    
+                    fmask = repeat(fmask, 'b h i w -> b h 1 i (w j)', j = self.selection_block_size)
+
+                    # select out the spatial crops of keys / values for fine attention
+
+                    fk = rearrange(fk, 'b h (w n) d -> b h w n d', w = num_fine_blocks)
+                    fv = rearrange(fv, 'b h (w n) d -> b h w n d', w = num_fine_blocks)
+
+                    # get_at("b h [w] j d, b h i selected -> b h i selected j d", fkv, selected_block_indices)
+                    '''
+                    if self.query_heads_share_selected_kv:
+                        fk = repeat(fk, 'b h w j d -> b h i w j d', i = selected_block_indices.shape[2])
+                        fv = repeat(fv, 'b h w j d -> b h i w j d', i = selected_block_indices.shape[2])
+                    else:
+                        fk = repeat(fk, 'b h w j d -> b (h qh) i w j d', i = selected_block_indices.shape[2], qh = self.num_grouped_queries)
+                        fv = repeat(fv, 'b h w j d -> b (h qh) i w j d', i = selected_block_indices.shape[2], qh = self.num_grouped_queries)
+
+                    selected_block_indices = repeat(selected_block_indices, 'b h i sel -> b h i sel j d', j = fk.shape[-2], d = fk.shape[-1])
+
+                    fk = fk.gather(3, selected_block_indices)
+                    fv = fv.gather(3, selected_block_indices)
+                    '''
+                    # --------------------------------------------------------------------
+                    # Inputs
+                    #   fk, fv : [B, H, W, J, D]         (K / V for every window W)
+                    #   selected_block_indices : [B, H, I, S]   (window-IDs each query wants)
+                    #           B = batch, H = heads, I = #queries per head, S = top-k
+                    # --------------------------------------------------------------------
+
+                    B, H, W, J, D = fk.shape
+                    I, S          = selected_block_indices.shape[2:]
+
+                    # 1) work on (B·H) rows at once
+                    fk  = fk .view(B*H, W, J, D)
+                    fv  = fv .view(B*H, W, J, D)
+                    idx = selected_block_indices.reshape(B*H, -1)           # (BH, I·S)
+
+                    # 2) unique windows and the reverse mapping
+                    uniq, inv = torch.unique(idx, return_inverse=True)       # uniq: (U,)  inv: (BH·I·S,)
+
+                    # 3) pull each needed window once ------------- (index_select = fast C++)
+                    fk_u = fk.index_select(1, uniq)                          # (BH, U, J, D)
+                    fv_u = fv.index_select(1, uniq)
+
+                    # 4) map them back to the per-query order
+                    fk_sel = fk_u.view(B*H, -1, J, D)[
+                            torch.arange(B*H, device=fk.device).unsqueeze(-1), inv
+                            ].view(B, H, I, S, J, D)
+
+                    fv_sel = fv_u.view(B*H, -1, J, D)[
+                            torch.arange(B*H, device=fv.device).unsqueeze(-1), inv
+                            ].view(B, H, I, S, J, D)
+                    fk, fv = fk_sel, fv_sel
+                    # --------------------------------------------------------------------
+
+                    # fk_sel / fv_sel are exactly what the old repeat-→gather gave you,
+                    # but with no data duplication and no 16 GiB grad buffer.
+
+                    # differential topk gating
+
+                    if self.use_diff_topk:
+                        
+
+                        fk = einx.multiply('b h i sel, b h i sel j d -> b h i sel j d', gates, fk)
+
+                    # merge selected key values
+
+                    fk, fv = tuple(rearrange(t, 'b h i w j d -> b h i (w j) d') for t in (fk, fv))
+
+                    # fine attention
+
+                    fq = rearrange(fq, 'b (h qh) ... -> b h qh ...', qh = fine_num_grouped_queries)
+
+                    fsim = einsum(fq, fk, 'b h qh i d, b h i j d -> b h qh i j') * self.scale
+
+                    mask_value = max_neg_value(fsim)
+
+                    fsim = fsim.masked_fill(~fmask, mask_value)
+
+                    fattn = fsim.softmax(dim = -1)
+
+                    fine_attn_out = einsum(fattn, fv, 'b h qh i j, b h i j d -> b h qh i d')
+
+                    fine_attn_out = rearrange(fine_attn_out, 'b h qh ... -> b (h qh) ...')
+
+                    fine_attn_out = fine_attn_out[..., :seq_len, :]
 
             else:
+                # if only first block, just do a simple block attention
+
+                seq_len = fk.shape[-2]
+                fmask = None
+
+                fk, fv, fq = map(pad_to_multiple, (fk, fv, fq))
+
+                fq, fk, fv = tuple(rearrange(t, 'b h (w n) d -> (b w) h n d', n = self.selection_block_size) for t in (fq, fk, fv))
+
+                
+                fine_attn_out = attend(fq, fk, fv, mask = fmask)
+
+                fine_attn_out = rearrange(fine_attn_out, '(b w) h n d -> b h (w n) d', b = batch)
+                fine_attn_out = fine_attn_out[..., :seq_len, :]
+        else:
+            fq = q
+            fk = k
+            fv = v
+
+            num_selected = min(num_selected, importance_scores.shape[-1])
+            has_selected_kv_for_fine_attn = num_selected > 0
+
+            remainder = fine_divisible_seq_len - seq_len
+            pad_to_multiple = partial(pad_at_dim, pad = (0, remainder), dim = -2)
+
+            if has_selected_kv_for_fine_attn:
+
+                # get the top-n kv segments for fine attention
+
+                selected_importance_values, selected_block_indices = importance_scores.topk(num_selected, dim = -1)
+
+                gates = straight_through(selected_importance_values, 1.) if self.use_diff_topk else None
+
+                
                 fmask = selected_importance_values > 1e-10
 
                 if seq_len < fine_divisible_seq_len:
@@ -505,113 +647,55 @@ class SparseAttention(Module):
                     fmask = pad_at_dim(fmask, (0, remainder), value = False, dim = -2)
 
                     selected_block_indices = pad_at_dim(selected_block_indices, (0, remainder), value = 0, dim = -2)
+                gqa_ratio = self.heads // self.kv_heads           # HQ ÷ H
+                assert gqa_ratio % 16 == 0, \
+                    f"Fla-org kernels need GQA ratio multiple of 16, got {gqa_ratio}"
 
-                    if exists(gates):
-                        gates = pad_at_dim(gates, (0, remainder), value = 0, dim = -2)
+                # ---------------------------------------------------------------------
+                # 2)  convert to Fla layout  [B, T, heads, D]
+                q_fla = rearrange(q, 'b h t d -> b t h d')        # HQ heads
+                k_fla = rearrange(k, 'b h t d -> b t h d')        # KV heads
+                v_fla = rearrange(v, 'b h t d -> b t h d')
 
-                
-                fmask = repeat(fmask, 'b h i w -> b h 1 i (w j)', j = self.selection_block_size)
+                B, T, H_kv, D = k_fla.shape
+                HQ = q_fla.shape[2]
+                device = q.device
 
-                # select out the spatial crops of keys / values for fine attention
+                # ---------------------------------------------------------------------
+                # 3)  build block-index tensor  [B, T, H_kv, S]
+                #     – we reuse `selected_block_indices` your code already produced
+                #       shape is [B, H_kv, I, S]  (I = #fine blocks = T // block_size)
+                block_size = self.selection_block_size           # same as NSA selection size
+                S           = self.num_selected_blocks
+                I           = selected_block_indices.shape[2]
 
-                fk = rearrange(fk, 'b h (w n) d -> b h w n d', w = num_fine_blocks)
-                fv = rearrange(fv, 'b h (w n) d -> b h w n d', w = num_fine_blocks)
+                # coarse-block index for every token
+                t_to_i = torch.arange(T, device=device) // block_size   # shape [T]
 
-                # get_at("b h [w] j d, b h i selected -> b h i selected j d", fkv, selected_block_indices)
-                '''
-                if self.query_heads_share_selected_kv:
-                    fk = repeat(fk, 'b h w j d -> b h i w j d', i = selected_block_indices.shape[2])
-                    fv = repeat(fv, 'b h w j d -> b h i w j d', i = selected_block_indices.shape[2])
-                else:
-                    fk = repeat(fk, 'b h w j d -> b (h qh) i w j d', i = selected_block_indices.shape[2], qh = self.num_grouped_queries)
-                    fv = repeat(fv, 'b h w j d -> b (h qh) i w j d', i = selected_block_indices.shape[2], qh = self.num_grouped_queries)
+                # gather once per coarse block
+                coarse_block_idx = selected_block_indices                # [B, H, I, S]
 
-                selected_block_indices = repeat(selected_block_indices, 'b h i sel -> b h i sel j d', j = fk.shape[-2], d = fk.shape[-1])
+                # broadcast to every token with its coarse id
+                block_idx = coarse_block_idx[:, :, t_to_i, :]            # [B, H, T, S]
+                block_idx = block_idx.permute(0, 2, 1, 3).contiguous()   # [B, T, H, S]
+                tok_numbers = torch.arange(T, device=device)[:, None, None]   # [T,1,1]
+                block_idx = torch.minimum(block_idx, tok_numbers // block_size)
 
-                fk = fk.gather(3, selected_block_indices)
-                fv = fv.gather(3, selected_block_indices)
-                '''
-                # --------------------------------------------------------------------
-                # Inputs
-                #   fk, fv : [B, H, W, J, D]         (K / V for every window W)
-                #   selected_block_indices : [B, H, I, S]   (window-IDs each query wants)
-                #           B = batch, H = heads, I = #queries per head, S = top-k
-                # --------------------------------------------------------------------
+                # ---------------------------------------------------------------------
+                # 4)  fused selected-attention (Fla-org ParallelNSA)
+                fine_out = ParallelNSAFunction.apply(
+                    q_fla,                   # [B, T, HQ, D]
+                    k_fla, v_fla,            # [B, T, H,  D]
+                    block_idx,               # [B, T, H,  S]
+                    S,                       # int or per-query tensor
+                    block_size,              # e.g. 64
+                    self.scale,              # same scale you used before
+                    None                     # cu_seqlens (None for fixed-length)
+                )                             # → [B, T, HQ, D]
 
-                B, H, W, J, D = fk.shape
-                I, S          = selected_block_indices.shape[2:]
-
-                # 1) work on (B·H) rows at once
-                fk  = fk .view(B*H, W, J, D)
-                fv  = fv .view(B*H, W, J, D)
-                idx = selected_block_indices.reshape(B*H, -1)           # (BH, I·S)
-
-                # 2) unique windows and the reverse mapping
-                uniq, inv = torch.unique(idx, return_inverse=True)       # uniq: (U,)  inv: (BH·I·S,)
-
-                # 3) pull each needed window once ------------- (index_select = fast C++)
-                fk_u = fk.index_select(1, uniq)                          # (BH, U, J, D)
-                fv_u = fv.index_select(1, uniq)
-
-                # 4) map them back to the per-query order
-                fk_sel = fk_u.view(B*H, -1, J, D)[
-                        torch.arange(B*H, device=fk.device).unsqueeze(-1), inv
-                        ].view(B, H, I, S, J, D)
-
-                fv_sel = fv_u.view(B*H, -1, J, D)[
-                        torch.arange(B*H, device=fv.device).unsqueeze(-1), inv
-                        ].view(B, H, I, S, J, D)
-                fk, fv = fk_sel, fv_sel
-                # --------------------------------------------------------------------
-
-                # fk_sel / fv_sel are exactly what the old repeat-→gather gave you,
-                # but with no data duplication and no 16 GiB grad buffer.
-
-                # differential topk gating
-
-                if self.use_diff_topk:
-                    
-
-                    fk = einx.multiply('b h i sel, b h i sel j d -> b h i sel j d', gates, fk)
-
-                # merge selected key values
-
-                fk, fv = tuple(rearrange(t, 'b h i w j d -> b h i (w j) d') for t in (fk, fv))
-
-                # fine attention
-
-                fq = rearrange(fq, 'b (h qh) ... -> b h qh ...', qh = fine_num_grouped_queries)
-
-                fsim = einsum(fq, fk, 'b h qh i d, b h i j d -> b h qh i j') * self.scale
-
-                mask_value = max_neg_value(fsim)
-
-                fsim = fsim.masked_fill(~fmask, mask_value)
-
-                fattn = fsim.softmax(dim = -1)
-
-                fine_attn_out = einsum(fattn, fv, 'b h qh i j, b h i j d -> b h qh i d')
-
-                fine_attn_out = rearrange(fine_attn_out, 'b h qh ... -> b (h qh) ...')
-
-                fine_attn_out = fine_attn_out[..., :seq_len, :]
-
-        else:
-            # if only first block, just do a simple block attention
-
-            seq_len = fk.shape[-2]
-            fmask = None
-
-            fk, fv, fq = map(pad_to_multiple, (fk, fv, fq))
-
-            fq, fk, fv = tuple(rearrange(t, 'b h (w n) d -> (b w) h n d', n = self.selection_block_size) for t in (fq, fk, fv))
-
-            
-            fine_attn_out = attend(fq, fk, fv, mask = fmask)
-
-            fine_attn_out = rearrange(fine_attn_out, '(b w) h n d -> b h (w n) d', b = batch)
-            fine_attn_out = fine_attn_out[..., :seq_len, :]
-
+                # ---------------------------------------------------------------------
+                # 5)  return to old layout  [B, HQ, T, D]; keep the rest of the code
+                fine_attn_out = rearrange(fine_out, 'b t h d -> b h t d')
         # 3. overlapping sliding window, this is unsurprising and expected - `s` for sliding
 
         sq = q

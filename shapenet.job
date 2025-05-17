@@ -14,9 +14,16 @@ module load Anaconda3/2024.06-1
 
 # Activate your environment
 # source activate erwin
-source erwin/bin/activate
+source erwinplus/bin/activate
 # Check whether the GPU is available
 cd experiments
 export WANDB_API_KEY=a6910fe73e66c089df72dd1ee97aef2b3c7264dd
 # export WANDB_MODE=disabled
-srun python train_shapenet.py --use-wandb 1 --size small --model erwin_nsa --data-path "../../nico_directory/shapenet_car_processed" --num-epochs 1000 --experiment 'shapenet_nsa_profile_chatgpt_alternative_to_gather' --profile 0
+srun python train_shapenet.py \
+ --use-wandb 1 \
+ --size small \
+ --model erwin_nsa \
+ --data-path "../../nico_directory/shapenet_car_processed" \
+ --num-epochs 1000 \
+ --experiment 'shapenet_nsa_profile_chatgpt_triton' \
+ --profile 0
