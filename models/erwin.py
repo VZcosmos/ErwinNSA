@@ -420,7 +420,7 @@ class BallNSA(nn.Module):
         self.nsa = SparseAttention(dim, max(min_nsa_heads, dim//num_heads), num_heads,
                                    self.ball_size,
                                    compress_ball_size,
-                                   compress_ball_size,
+                                   compress_ball_size // 2,
                                    compress_ball_size, num_selected_blocks)
         self.pe_proj = nn.Linear(dimensionality, dim)
         self.sigma_att = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))

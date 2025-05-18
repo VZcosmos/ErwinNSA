@@ -24,6 +24,6 @@ srun python train_shapenet.py \
  --size small \
  --model erwin_nsa \
  --data-path "../../nico_directory/shapenet_car_processed" \
- --num-epochs 1000 \
- --experiment 'shapenet_nsa_profile_chatgpt_triton' \
+ --num-epochs 6000 \
+ --experiment 'shapenet_nsa__xball_deeper_larger-topk' \
  --profile 0
