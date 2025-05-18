@@ -10,8 +10,17 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from erwin.training import fit
 from erwin.models.erwin import ErwinTransformer, NSABallformer
+from erwin.models.native_sparse_attention_clean import SparseAttention
 from erwin.experiments.datasets import ShapenetCarDataset
 from erwin.experiments.wrappers import ShapenetCarModel
+
+
+from collections import defaultdict
+import wandb
+def _size_mb(t): return t.numel()*t.element_size()/1e6
+def log_hook(mod, inp, out):
+    wandb.log({f"{mod.__class__.__name__}/in_MB": sum(_size_mb(x) for x in inp),
+               f"{mod.__class__.__name__}/out_MB": _size_mb(out)})
 
 
 def parse_args():
@@ -24,6 +33,7 @@ def parse_args():
     parser.add_argument("--num-epochs", type=int, default=100000)
     parser.add_argument("--batch-size", type=int, default=2)
     parser.add_argument("--use-wandb", type=int, default=1)
+    parser.add_argument("--profile", type=int, default=0)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--val-every-iter", type=int, default=100, 
                         help="Validation frequency")
@@ -80,11 +90,12 @@ erwin_nsa_configs = {
         "c_in": 64,
         "c_hidden": 64,
         "rotate": 0,
-        "depth": 6,
-        "num_heads": 8,
-        "compress_ball_size": 64,
-        "sliding_window_size": 32,
-        "num_selected_blocks": 1,
+        "depth": 18,
+        "num_heads": 16,
+        "compress_ball_size": 32,
+        "local_ball_size": 512,
+        "num_selected_blocks": 32,
+        "min_nsa_heads": 16,
     },
 }
 
@@ -99,6 +110,8 @@ if __name__ == "__main__":
 
     torch.manual_seed(args.seed)
     torch.cuda.manual_seed(args.seed)
+
+
     
     train_dataset = ShapenetCarDataset(
         data_path=args.data_path,
@@ -150,7 +163,20 @@ if __name__ == "__main__":
         raise NotImplementedError(f"Unknown model: {args.model}")
     
     main_model = model_cls[args.model](**model_config)
+    if args.profile:
+        # THIS COULD SLOW DOWN TRAINING BUT IS NEEDED FOR PROFILING
+        print("Memory profiling enabled!")
+        torch.cuda.memory._record_memory_history()
+
+    torch.cuda.reset_peak_memory_stats(torch.device("cuda"))
     model = ShapenetCarModel(main_model).cuda()
+    # DO NOT UNCOMMENT UNTIL FIXED.
+    # The problem is that the log_hook advances the step counter too much,
+    # and then all our logs inside the fit() func will not be logged.
+    # for m in model.modules():
+    #     if isinstance(m, SparseAttention):
+    #         m.register_forward_hook(log_hook)
+
     model = torch.compile(model)
 
     optimizer = AdamW(model.parameters(), lr=args.lr)

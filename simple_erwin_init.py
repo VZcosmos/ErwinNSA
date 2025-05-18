@@ -1,9 +1,9 @@
 import torch
-from models import ErwinTransformer
+from models.erwin import ErwinTransformer, NSABallformer
 from balltree import build_balltree_with_rotations
 import matplotlib.pyplot as plt
 
-config = {
+config_no_coarsening = {
     "c_in": 16,
     "c_hidden": 16,
     "ball_sizes": [16], # 128
@@ -17,8 +17,37 @@ config = {
     "dimensionality": 2, # for visualization
     "rotate": 0,
 }
+config = config_no_coarsening
+config_coarsening = config_no_coarsening
 
-model = ErwinTransformer(**config).cuda()
+# config_coarsening = {
+#         "c_in": 16,
+#         "c_hidden": 16,
+#         "ball_sizes": [4, 4],
+#         "enc_num_heads": [2, 2],
+#         "enc_depths": [2, 2],
+#         "dec_num_heads": [2],
+#         "dec_depths": [2],
+#         "strides": [1],
+#         "rotate": 45,
+#         "mp_steps": 0,
+# }
+
+erwin_nsa_config = {
+        "c_in": 16,
+        "c_hidden": 16,
+        "rotate": 0,
+        "depth": 2,
+        "num_heads": 2,
+        "compress_ball_size": 8,
+        "local_ball_size": 8,
+        "num_selected_blocks": 2,
+        "mp_steps": 0,
+}
+
+model1 = ErwinTransformer(**config_no_coarsening).cuda()
+model2 = ErwinTransformer(**config_coarsening).cuda()
+model3 = NSABallformer(**erwin_nsa_config).cuda()
 
 bs = 1
 num_points = 64 # 1024
@@ -56,8 +85,8 @@ for ball in balls:
 
 print(j0, j1)
 
-print(f'Same ball: {measure_interaction(model, node_features, node_positions, i, j0, bs, num_points, radius)}')
-print(f'Different ball: {measure_interaction(model, node_features, node_positions, i, j1, bs, num_points, radius)}')
+print(f'Same ball: {measure_interaction(model1, node_features, node_positions, i, j0, bs, num_points, radius)}')
+print(f'Different ball: {measure_interaction(model1, node_features, node_positions, i, j1, bs, num_points, radius)}')
 
 def measure_interaction_batch(model, x, pos, bs, num_points, radius):
     x = x.detach().clone().requires_grad_(True)
@@ -98,6 +127,14 @@ def log_transform(matrix, eps=1e-8): # heatmap uses logarithmic scale, since for
 def reorder_matrix(matrix, permutation):
     return matrix[permutation][:, permutation]
 
-influences = measure_interaction_batch(model, node_features, node_positions, bs, num_points, radius)
-permuted_influences = reorder_matrix(influences, tree_idx)
-plot_heatmap(log_transform(permuted_influences))
+influences1 = measure_interaction_batch(model1, node_features, node_positions, bs, num_points, radius)
+influences2 = measure_interaction_batch(model2, node_features, node_positions, bs, num_points, radius)
+influences3 = measure_interaction_batch(model3, node_features, node_positions, bs, num_points, radius)
+
+permuted_influences1 = reorder_matrix(influences1, tree_idx)
+permuted_influences2 = reorder_matrix(influences2, tree_idx)
+permuted_influences3 = reorder_matrix(influences3, tree_idx)
+
+plot_heatmap(log_transform(permuted_influences1), "erwin_without_u_net.png")
+plot_heatmap(log_transform(permuted_influences2), "erwin_with_u_net.png")
+plot_heatmap(log_transform(permuted_influences3), "erwin_nsa.png")

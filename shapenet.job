@@ -1,11 +1,10 @@
 #!/bin/bash
 
-#SBATCH --partition=gpu_a100
+#SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
 #SBATCH --job-name=ErwinNSATest
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=9
-
 #SBATCH --time=01:00:00
 #SBATCH --output=erwin_nsa_triton.out
 
@@ -15,10 +14,16 @@ module load Anaconda3/2024.06-1
 
 # Activate your environment
 # source activate erwin
-source erwin/bin/activate
+source erwinplus/bin/activate
 # Check whether the GPU is available
 cd experiments
 export WANDB_API_KEY=a6910fe73e66c089df72dd1ee97aef2b3c7264dd
 # export WANDB_MODE=disabled
-
-srun python train_shapenet.py --use-wandb 1 --size small --model erwin_nsa --data-path "../../nico_directory/shapenet_car_processed" --num-epochs 4000
+srun python train_shapenet.py \
+ --use-wandb 1 \
+ --size small \
+ --model erwin_nsa \
+ --data-path "../../nico_directory/shapenet_car_processed" \
+ --num-epochs 6000 \
+ --experiment 'shapenet_nsa__xball_deeper_larger-topk' \
+ --profile 0

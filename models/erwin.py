@@ -408,18 +408,19 @@ class ErwinTransformer(nn.Module):
 
 class BallNSA(nn.Module):
     """ NSA on a ball tree. """
-    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, sliding_window_size: int, num_selected_blocks: int, dimensionality: int = 3):
+    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, local_ball_size: int, num_selected_blocks: int, dimensionality: int = 3, min_nsa_heads: int = 16):
         super().__init__()
         self.dim = dim
         self.num_heads = num_heads
         self.compress_ball_size = compress_ball_size
-        self.sliding_window_size = sliding_window_size
+        self.local_ball_size = local_ball_size
         # TEMPORARY
-        self.ball_size = sliding_window_size
-
-        self.nsa = SparseAttention(dim, dim//num_heads, num_heads,
-                                   sliding_window_size, compress_ball_size,
+        self.ball_size = local_ball_size
+        print("NSA heads", max(min_nsa_heads, dim//num_heads))
+        self.nsa = SparseAttention(dim, max(min_nsa_heads, dim//num_heads), num_heads,
+                                   self.ball_size,
                                    compress_ball_size,
+                                   compress_ball_size // 2,
                                    compress_ball_size, num_selected_blocks)
         self.pe_proj = nn.Linear(dimensionality, dim)
         self.sigma_att = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))
@@ -444,20 +445,20 @@ class BallNSA(nn.Module):
         pos_emb = self.pe_proj(self.compute_rel_pos(pos)) 
         if x.ndim == 2:
             x = x.unsqueeze(0)
-            x = self.nsa(x, pos_emb=pos_emb) # add pos_emb to sliding window attention
+            x = self.nsa(x, pos=pos, pos_emb=pos_emb) # add pos_emb to sliding window attention
             x = x.squeeze(0)
         else:
-            x = self.nsa(x, pos_emb=pos_emb) # add pos_emb to sliding window attention
+            x = self.nsa(x, pos=pos, pos_emb=pos_emb) # add pos_emb to sliding window attention
         # print(f'output from NSA shape: {x.shape}')
         return x
 
 
 class BallNSABlock(nn.Module):
-    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, sliding_window_size: int, num_selected_blocks: int, mlp_ratio: int, dimensionality: int = 3):
+    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, local_ball_size: int, num_selected_blocks: int, mlp_ratio: int, dimensionality: int = 3, min_nsa_heads: int = 16):
         super().__init__()
         self.norm1 = nn.RMSNorm(dim)
         self.norm2 = nn.RMSNorm(dim)
-        self.BNSA = BallNSA(dim, num_heads, compress_ball_size, sliding_window_size, num_selected_blocks, dimensionality)
+        self.BNSA = BallNSA(dim, num_heads, compress_ball_size, local_ball_size, num_selected_blocks, dimensionality, min_nsa_heads)
         self.swiglu = SwiGLU(dim, dim * mlp_ratio)
 
     def forward(self, x: torch.Tensor, pos: torch.Tensor):
@@ -472,16 +473,16 @@ class BasicNSALayer(nn.Module):
         dim: int,
         num_heads: int,
         compress_ball_size: int,
-        sliding_window_size: int,
+        local_ball_size: int,
         num_selected_blocks: int,
         mlp_ratio: int,
         rotate: bool,
         dimensionality: int = 3,
-
+        min_nsa_heads: int = 16,
     ):
         super().__init__()
 
-        self.blocks = nn.ModuleList([BallNSABlock(dim, num_heads, compress_ball_size, sliding_window_size, num_selected_blocks, mlp_ratio, dimensionality) for _ in range(depth)])
+        self.blocks = nn.ModuleList([BallNSABlock(dim, num_heads, compress_ball_size, local_ball_size, num_selected_blocks, mlp_ratio, dimensionality, min_nsa_heads) for _ in range(depth)])
         self.rotate = [i % 2 for i in range(depth)] if rotate else [False] * depth
 
     def forward(self, node: Node) -> Node:
@@ -530,12 +531,13 @@ class NSABallformer(nn.Module):
         depth: int,
         num_heads: int,
         compress_ball_size: int,
-        sliding_window_size: int,
+        local_ball_size: int,
         num_selected_blocks: int,
         mlp_ratio: int = 4,
         dimensionality: int = 3,
         mp_steps: int = 3,
         num_layers: int = 1,
+        min_nsa_heads: int = 16,
     ):
         super().__init__()
         
@@ -549,11 +551,12 @@ class NSABallformer(nn.Module):
                                              dim=c_hidden,
                                              num_heads=num_heads,
                                              compress_ball_size=compress_ball_size,
-                                             sliding_window_size=sliding_window_size,
+                                             local_ball_size=local_ball_size,
                                              num_selected_blocks=num_selected_blocks,
                                              rotate=rotate > 0,
                                              mlp_ratio=mlp_ratio,
-                                             dimensionality=dimensionality)
+                                             dimensionality=dimensionality,
+                                             min_nsa_heads=min_nsa_heads)
             )
 
         self.in_dim = c_in
