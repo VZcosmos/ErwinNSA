@@ -90,11 +90,11 @@ erwin_nsa_configs = {
         "c_in": 64,
         "c_hidden": 64,
         "rotate": 0,
-        "depth": 6,
+        "depth": 18,
         "num_heads": 16,
         "compress_ball_size": 32,
         "local_ball_size": 512,
-        "num_selected_blocks": 16,
+        "num_selected_blocks": 32,
         "min_nsa_heads": 16,
     },
 }
