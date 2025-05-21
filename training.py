@@ -190,6 +190,35 @@ def evaluate_interactions_from_batch(model, batch, config, i_s=None):
     return (influences[0] > 0).sum().item()
 
 
+def measure_interaction_batch_md(model, vel_seq, node_type, node_positions, i_s, bs, batch):
+    vel_seq = vel_seq.detach().clone().requires_grad_(True)
+    N, F = vel_seq.shape
+    batch_idx = batch["batch_idx"]
+    influences = torch.zeros((len(i_s), N), device=vel_seq.device)
+
+    for idx, j in enumerate(i_s):
+        def f(input_vel_seq):
+            acc_mean, _ = model(input_vel_seq, node_positions, node_type, batch_idx, edge_index=batch['edge_index'], num_nodes=batch['num_nodes'])
+            return acc_mean[j]
+        jacobian = torch.autograd.functional.jacobian(f, vel_seq, create_graph=False)
+        influences[idx] = (jacobian ** 2).sum(dim=(0, 2))  # sum over output and feature dim
+
+    return influences
+
+def evaluate_interactions_from_batch_md(model, batch, config, i_s=None):
+    batch = {k: v.cuda() for k, v in batch.items()}
+    vel_seq = batch['vel_seq']
+    node_type = batch['node_type']
+    node_positions = batch['node_positions']
+    bs = 1
+    if i_s is None:
+        i_s = random.sample(range(vel_seq.shape[0]), 1)
+
+    influences = measure_interaction_batch_md(model, vel_seq, node_type, node_positions, i_s, bs, batch)
+    plot_log_distribution(influences[0], path_to_file(config, "md_influences.png"))
+    return (influences[0] > 0).sum().item()
+
+
 def benchmark_flops(model, data_loader, config):
     """
     Calculate the number of FLOPs for the model.
@@ -202,14 +231,18 @@ def benchmark_flops(model, data_loader, config):
         flops_forward = copy.deepcopy(ftdm.flop_counts)
         total_forward_flops = sum(get_leaf_values(flops_forward))
         ftdm.reset()
-        
-        if config.get("use_wandb", False):
-            wandb.log({"stats/forward_flops": total_forward_flops}, step=0)
-        else:
-            print(f"Forward FLOPs: {total_forward_flops}")
+    return total_forward_flops
+
+def count_parameters(model):
+    """
+    Count the number of trainable and total parameters in the model.
+    """
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total_params = sum(p.numel() for p in model.parameters())
+    return trainable_params, total_params
 
 
-def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_loader=None, timing_window_start=100, timing_window_size=500):
+def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_loader=None, timing_window_start=100, timing_window_size=500, dataset_type="shapenet"):
     if config.get("use_wandb", False):
         setup_wandb_logging(model, config)
     
@@ -230,7 +263,12 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
         #torch.cuda.reset_peak_memory_stats(device)
         memory_before_gb = torch.cuda.memory_allocated(device) / (1024**3)
 
-    # benchmark_flops(model, train_loader, config)
+    trainable_params, total_params = count_parameters(model)
+    flops_per_step = benchmark_flops(model, train_loader, config)
+    if config.get("use_wandb", False):
+        wandb.log({"stats/flops_per_step": flops_per_step})
+        wandb.log({"stats/trainable_params": trainable_params})
+        wandb.log({"stats/total_params": total_params})
     prof = None
     if config.get("profile", False):
         os.makedirs(path_to_file(config, "tb_trace"), exist_ok=True)
@@ -342,13 +380,19 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
         print(
             f"GPU Memory allocated after: {memory_after_gb:.4f} GB"
         )
-
-    n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
+    
+    if dataset_type == "shapenet":
+        n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
+    elif dataset_type == "md":
+        n_influenced = evaluate_interactions_from_batch_md(model, next(iter(train_loader)), config)
+    flops_per_second = flops_per_step * (config["num_epochs"] * len(train_loader) / runtime_seconds)
     if config.get("use_wandb", False):
         wandb.log({"stats/runtime": runtime_seconds})
         wandb.log({"stats/peak_gpu_memory": peak_memory_gb})
         wandb.log({"stats/before_gpu_memory": memory_before_gb})
         wandb.log({"stats/after_gpu_memory": memory_after_gb})
+        wandb.log({"stats/flops_per_second": flops_per_second})
+
 
         wandb.log({"stats/n_influenced": n_influenced})
         for file in files_to_save:

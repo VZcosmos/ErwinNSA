@@ -378,7 +378,7 @@ class ErwinTransformer(nn.Module):
             if edge_index is None and self.embed.mp_steps:
                 assert radius is not None, "radius (float) must be provided if edge_index is not given to build radius graph"
                 edge_index = torch_cluster.radius_graph(node_positions, radius, batch=batch_idx, loop=True)
-
+        # print(f"Total number of leaf nodes in the tree: {tree_mask.sum().item()}")
         x = self.embed(node_features, node_positions, edge_index)
 
         node = Node(
@@ -542,6 +542,7 @@ class NSABallformer(nn.Module):
         super().__init__()
         
         self.rotate = rotate
+        self.local_ball_size = local_ball_size
 
         self.embed = ErwinEmbedding(c_in, c_hidden, mp_steps, dimensionality)
         
@@ -577,7 +578,7 @@ class NSABallformer(nn.Module):
             # if not given, build the ball tree and radius graph
             if tree_idx is None and tree_mask is None:
                 # TEMPORARY: [0], [0] as strides and ball_sizes
-                tree_idx, tree_mask, tree_idx_rot = build_balltree_with_rotations(node_positions, batch_idx, [], [0], self.rotate)
+                tree_idx, tree_mask, tree_idx_rot = build_balltree_with_rotations(node_positions, batch_idx, [1] * (len(self.layers) - 1), [self.local_ball_size] * len(self.layers), self.rotate)
             if edge_index is None and self.embed.mp_steps:
                 assert radius is not None, "radius (float) must be provided if edge_index is not given to build radius graph"
                 edge_index = torch_cluster.radius_graph(node_positions, radius, batch=batch_idx, loop=True)

@@ -303,7 +303,7 @@ class SparseAttention(Module):
         # they combine the three sparse branches through a learned combine with sigmoid activation
 
         if not exists(strategy_combine_mlp):
-            strategy_combine_mlp = nn.Linear(dim, 3 * heads)
+            strategy_combine_mlp = nn.Linear(dim, 2 * heads)
 
             # init to sliding windows first, as network tends to pick up on local patterns first before distant ones
 
@@ -716,11 +716,22 @@ class SparseAttention(Module):
 
         pos_attn_bias = self.create_attention_bias(pos)
         seq_len = sk.shape[-2]
+        local_divisible_seq_len = round_up_mult(seq_len, self.ball_size)
+        remainder = local_divisible_seq_len - seq_len
+        pad_to_multiple = partial(pad_at_dim, pad = (0, remainder), dim = -2)
         sk, sv, sq = map(pad_to_multiple, (sk, sv, sq))
 
         sq, sk, sv = tuple(rearrange(t, 'b h (w n) d -> (b w) h n d', n = self.ball_size) for t in (sq, sk, sv))
 
         local_attn_out = attend(sq, sk, sv, mask = None, attn_bias = pos_attn_bias)
+        # local_attn_out = F.scaled_dot_product_attention(
+        #     query=sq,
+        #     key=sk,
+        #     value=sv,
+        #     enable_gqa=False,
+        #     attn_mask=None,
+        #     is_causal=False,
+        # )
         local_attn_out = rearrange(local_attn_out, '(b w) h n d -> b h (w n) d', b = batch)
         local_attn_out = local_attn_out[..., :seq_len, :]
 
@@ -730,6 +741,7 @@ class SparseAttention(Module):
         strategy_weighted_combine = self.to_strategy_combine(inp)
 
         out = einsum(strategy_weighted_combine, stack([compressed_attn_out, fine_attn_out, local_attn_out]), 'b h n s, s b h n d -> b h n d')
+        # out = einsum(strategy_weighted_combine, stack([compressed_attn_out, local_attn_out]), 'b h n s, s b h n d -> b h n d')
 
         # merge heads and combine them
 
