@@ -35,6 +35,14 @@ def plot_log_distribution(aTensor: torch.Tensor, aOutputPath: str) -> None:
     plt.close()
 
 
+def save_influence_tensor(aTensor: torch.Tensor, aOutputPath: str) -> None:
+    if aTensor.ndim != 1:
+        raise ValueError("Input tensor must be 1-dimensional.")
+
+    myValues = aTensor.detach().cpu().numpy()
+    np.save(aOutputPath, myValues) 
+
+
 def setup_wandb_logging(model, config, project_name="ballformer"):
     wandb.init(project=project_name, config=config, name=config["model"] + '_' + config["experiment"])
     wandb.watch(model)
@@ -101,16 +109,22 @@ def load_checkpoint(model, optimizer, scheduler, config):
     return checkpoint['val_loss'], checkpoint['global_step']
 
 
-def train_step(model, batch, optimizer, scheduler, global_step, config):
-    optimizer.zero_grad()
+def train_step(model, batch, optimizer, scheduler, global_step, config, accumulation_steps=1):
+    # optimizer.zero_grad()
     stat_dict = model.training_step(batch)
-    stat_dict["train/loss"].backward()
+    loss = stat_dict["train/loss"] / accumulation_steps
+    loss.backward()
+
+    if (global_step + 1) % accumulation_steps == 0:
+        optimizer.step()
+        if scheduler is not None:
+            scheduler.step()
+        optimizer.zero_grad()
+    stat_dict['train/lr'] = optimizer.param_groups[0]['lr']
+
     if global_step == 0 or global_step == 10:
         torch.cuda.memory._dump_snapshot(path_to_file(config, f"spike_{global_step}.pickle.gz"))
-    optimizer.step()
-    if scheduler is not None:
-        scheduler.step()
-    stat_dict['train/lr'] = optimizer.param_groups[0]['lr']
+
     return stat_dict
 
 
@@ -187,6 +201,7 @@ def evaluate_interactions_from_batch(model, batch, config, i_s=None):
 
     influences = measure_interaction_batch(model_from_node_features, node_features, node_positions, i_s, bs, batch)
     plot_log_distribution(influences[0], path_to_file(config, "influences.png"))
+    save_influence_tensor(influences[0], path_to_file(config, "influences_tensor.npy"))
     return (influences[0] > 0).sum().item()
 
 
@@ -242,7 +257,7 @@ def count_parameters(model):
     return trainable_params, total_params
 
 
-def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_loader=None, timing_window_start=100, timing_window_size=500, dataset_type="shapenet"):
+def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_loader=None, timing_window_start=100, timing_window_size=500, dataset_type="shapenet", accumulation_steps=1):
     if config.get("use_wandb", False):
         setup_wandb_logging(model, config)
     
@@ -284,6 +299,7 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
         )
         prof.__enter__()
 
+    optimizer.zero_grad()
     while global_step < max_steps:
         iterator = tqdm(train_loader, desc=f"Training (step {global_step + 1}/{max_steps})") if use_tqdm else train_loader
         for batch in iterator:
@@ -306,7 +322,8 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
                 else:
                     print(f"Steps per second: {steps_per_second:.2f}")
             
-            stat_dict = train_step(model, batch, optimizer, scheduler, global_step, config)
+            # Add optimizer zero_grad so that gradient accumulation works correctly inside of train_step
+            stat_dict = train_step(model, batch, optimizer, scheduler, global_step, config, accumulation_steps=accumulation_steps)
             
             for k, v in stat_dict.items():
                 if "lr" not in k:
