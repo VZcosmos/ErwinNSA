@@ -381,15 +381,14 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
                 val_stats = validate(model, val_loader, config)
                 current_val_loss = val_stats['avg/val/loss']
                 
-                if current_val_loss < best_val_loss and global_step // accumulation_steps == 0:
+                if current_val_loss < best_val_loss:
                     best_val_loss = current_val_loss
                     save_checkpoint(model, optimizer, scheduler, config, best_val_loss, global_step, accumulation_steps=accumulation_steps)
                     if not config.get("use_wandb", False):
                         print(f"New best validation loss: {best_val_loss:.4f}, saved checkpoint")
                 
                 if config.get("use_wandb", False):
-                    if global_step % accumulation_steps == 0:
-                        wandb.log({**train_stats, **val_stats, 'global_step': global_step}, step=global_step // accumulation_steps)
+                    wandb.log({**train_stats, **val_stats, 'global_step': global_step}, step=global_step // accumulation_steps)
                 else:
                     loss_keys = [k for k in val_stats.keys() if "loss" in k]
                     for k in loss_keys: 
