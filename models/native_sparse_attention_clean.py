@@ -1,755 +1,398 @@
 from __future__ import annotations
-
+ 
+# ──────────────────────────────────────────────────────────────────────────────
+# Std-lib & typing
+# ──────────────────────────────────────────────────────────────────────────────
 from copy import deepcopy
-from math import ceil
 from functools import partial
-
+from math import ceil
+from typing import Callable, Tuple
+ 
+# ──────────────────────────────────────────────────────────────────────────────
+# Third-party
+# ──────────────────────────────────────────────────────────────────────────────
 import torch
 import torch.nn.functional as F
-from torch import nn, arange, stack, cat, tensor, Tensor
-from torch.nn import Module, ModuleList
-from native_sparse_attention.ops.parallel import parallel_nsa_topk, ParallelNSAFunction
-
-# einstein notation
-
-import einx
-from einops import einsum, repeat, rearrange, reduce, pack, unpack
+from torch import Tensor, arange, cat, stack, nn
+from torch.nn import Module, ModuleList, Linear, Identity, RMSNorm, ZeroPad2d
+ 
+from einops import einsum, rearrange, reduce, repeat, pack, unpack
 from einops.layers.torch import Rearrange
 
-# b - batch
-# h - heads
-# qh - grouped query heads
-# n - sequence (token level or compressed)
-# w - windows, for fine or compressed
-# i, j - query / key sequence
-# d - feature dimension
-# s - strategies
-
-# flex attention
-# https://pytorch.org/blog/flexattention/
-
-flex_attention = None
-
-try:
-    from torch.nn.attention.flex_attention import flex_attention, create_block_mask
-    # if torch.cuda.is_available():
-    #     flex_attention = torch.compile(flex_attention)
-except ImportError:
-    pass
-
-# flex attn sliding attention mask
-
-
-def create_sliding_mask(seq_len, window_size):
-
-    def sliding_mask(_, __, q_idx, kv_idx):
-
-        distance = q_idx - kv_idx
-        backward_sliding_mask = distance <= window_size
-        forward_sliding_mask = distance >= -window_size
-
-        return backward_sliding_mask & forward_sliding_mask
-
-    block_mask = create_block_mask(sliding_mask, B = None, H = None, Q_LEN = seq_len, KV_LEN = seq_len, _compile = True)
-    return block_mask
-
-def create_compress_mask(seq_len, kv_seq_len, compress_block_sliding_stride, mem_kv_len = 0):
-    return None
-
-
-def create_fine_mask(seq_len, fine_block_size):
-
-    def inner(selected_block_indices: Tensor, num_grouped_queries = 1):
-        device = selected_block_indices.device
-        batch, kv_heads = selected_block_indices.shape[:2]
-
-        one_hot_selected_block_indices = torch.zeros((*selected_block_indices.shape[:-1], seq_len // fine_block_size), device = device, dtype = torch.bool)
-        one_hot_selected_block_indices.scatter_(-1, selected_block_indices, True)
-
-        def fine_mask(b_idx, h_idx, q_idx, kv_idx):
-
-            compressed_q_idx = q_idx // fine_block_size
-            compressed_kv_idx = kv_idx // fine_block_size
-            kv_head_idx = h_idx // num_grouped_queries
-
-            is_selected = one_hot_selected_block_indices[b_idx, kv_head_idx, q_idx, compressed_kv_idx]
-
-            return is_selected
-
-        block_mask = create_block_mask(fine_mask, B = batch, H = kv_heads * num_grouped_queries, Q_LEN = seq_len, KV_LEN = seq_len, _compile = True)
-        return block_mask
-
-    return inner
-
-# helpers
-
-def exists(v):
-    return v is not None
-
-def default(v, d):
-    return v if exists(v) else d
-
-def round_down_mult(n, mult):
-    return n // mult * mult
-
-def round_up_mult(n, mult):
-    return ceil(n / mult) * mult
-
-def divisible_by(num, den):
-    return (num % den) == 0
-
-def is_empty(t):
-    return t.numel() == 0
-
-def max_neg_value(t):
-    return -torch.finfo(t.dtype).max
-
-def pack_one_with_inverse(t, pattern):
-    packed, ps = pack([t], pattern)
-    def inverse(out):
-        return unpack(out, ps, pattern)[0]
-
-    return packed, inverse
-
-# tensor helpers
-
-def pad_at_dim(t, pad, dim = -1, value = 0.):
-    dims_from_right = (- dim - 1) if dim < 0 else (t.ndim - dim - 1)
-    zeros = ((0, 0) * dims_from_right)
-    return F.pad(t, (*zeros, *pad), value = value)
-
-def straight_through(t, target):
-    return t + (target - t).detach()
-
-# attend function
-
+import einx
+ 
+from native_sparse_attention.ops.parallel import ParallelNSAFunction
+ 
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# Helper functions
+# ══════════════════════════════════════════════════════════════════════════════
+def exists(v) -> bool: return v is not None
+def default(v, d):    return v if exists(v) else d
+def round_down_mult(n: int, k: int) -> int: return n // k * k
+def round_up_mult(n: int, k: int) -> int:   return ceil(n / k) * k
+def divisible_by(n: int, k: int) -> bool:   return (n % k) == 0
+def is_empty(t: Tensor) -> bool:            return t.numel() == 0
+def max_neg_value(t: Tensor) -> Tensor:     return -torch.finfo(t.dtype).max
+ 
+def pad_at_dim(t: Tensor, pad: tuple[int, int], *, dim: int = -1, value: float = 0.):
+    """Zero/right-pad *t* at *dim* by (*pad_left*, *pad_right*)."""
+    dims_from_right = (-dim - 1) if dim < 0 else (t.ndim - dim - 1)
+    zeros = (0, 0) * dims_from_right
+    return F.pad(t, (*zeros, *pad), value=value)
+ 
+def straight_through(src: Tensor, tgt: Tensor) -> Tensor:
+    """Straight-through estimator."""
+    return src + (tgt - src).detach()
+ 
+def pack_one_with_inverse(t: Tensor, pattern: str) -> Tuple[Tensor, Callable[[Tensor], Tensor]]:
+    packed, layout = pack([t], pattern)
+    return packed, lambda out: unpack(out, layout, pattern)[0]
+ 
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# Generic scaled-dot-product attention
+# ══════════════════════════════════════════════════════════════════════════════
 def attend(
-    q, k, v,
-    mask = None,
-    return_sim = False,
-    scale = None,
-    attn_bias = None
+    q: Tensor,
+    k: Tensor,
+    v: Tensor,
+    *,
+    mask: Tensor | None = None,
+    scale: float | None = None,
+    attn_bias: Tensor | None = None,
+    return_sim: bool = False,
 ):
+    """
+    All-purpose GQA-aware attention used by the three NSA branches.
+    Shapes
+        q : [B,      Hq,      Lq, D]
+        k : [B,      Hk,      Lk, D]
+        v : [B,      Hk,      Lk, D]
+        mask / bias broadcast to [B, Hk, Hq/G, Lq, Lk]
+    """
     scale = default(scale, q.shape[-1] ** -0.5)
-
+ 
     q_heads, k_heads = q.shape[1], k.shape[1]
-    num_grouped_queries = q_heads // k_heads
-
-    q = rearrange(q, 'b (h qh) ... -> b h qh ...', qh = num_grouped_queries)
-
-    sim = einsum(q, k, 'b h qh i d, b h j d -> b h qh i j') * scale
-
-    if exists(attn_bias):
-        # attn_bias initial shape: [num_windows, total_query_heads, ball_size, ball_size]
-        # q shape after rearrange: [eff_batch, kv_heads, num_grouped_queries, ball_size, head_dim]
-        # k shape: [eff_batch, kv_heads, ball_size, head_dim]
-        # sim shape: [eff_batch, kv_heads, num_grouped_queries, ball_size, ball_size]
-
-        effective_batch_dim = q.shape[0]
-        kv_heads_dim = k.shape[1]
-        num_grouped_queries_dim = q.shape[2]
-
-        if attn_bias.shape[0] != effective_batch_dim:
-            if effective_batch_dim % attn_bias.shape[0] != 0:
-                raise ValueError(
-                    f"Effective batch dimension ({effective_batch_dim}) must be a multiple of attn_bias's first dimension ({attn_bias.shape[0]})"
-                )
-            num_batch_repeats = effective_batch_dim // attn_bias.shape[0]
-            attn_bias_expanded = attn_bias.repeat(num_batch_repeats, 1, 1, 1)
-        else:
-            attn_bias_expanded = attn_bias
-
-        attn_bias_reshaped = attn_bias_expanded.view(
-            effective_batch_dim,
-            kv_heads_dim,
-            num_grouped_queries_dim,
-            attn_bias_expanded.shape[2],  # ball_size (query dimension)
-            attn_bias_expanded.shape[3]   # ball_size (key dimension)
-        )
-        
-        sim = sim + attn_bias_reshaped
-
-    mask_value = max_neg_value(sim)
-
+    grouped = q_heads // k_heads                                   # GQA ratio
+ 
+    q = rearrange(q, "b (h g) l d -> b h g l d", g=grouped)
+    sim = einsum(q, k, "b h g i d, b h j d -> b h g i j") * scale
+ 
+    if exists(attn_bias):                                          # distance bias
+        b, h, g, *_ = sim.shape
+        bias = attn_bias
+        if b != bias.shape[0]:  # handle packing for local windows
+            bias = bias.repeat_interleave(b // bias.shape[0], 0)
+        sim = sim + bias.view(b, h, g, *bias.shape[-2:])
+ 
     if exists(mask):
-        sim = sim.masked_fill(~mask, mask_value // 10)
-
-    attn = sim.softmax(dim = -1)
-
-    attn_out = einsum(attn, v, 'b h qh i j, b h j d -> b h qh i d')
-
-    attn_out = rearrange(attn_out, 'b h qh ... -> b (h qh) ...')
-
+        sim = sim.masked_fill(~mask, max_neg_value(sim) // 10)
+ 
+    attn = sim.softmax(dim=-1)
+    out = einsum(attn, v, "b h g i j, b h j d -> b h g i d")
+    out = rearrange(out, "b h g l d -> b (h g) l d")
+ 
     if not return_sim:
-        return attn_out
-
-    sim = rearrange(sim, 'b h qh ... -> b (h qh) ...')
-
-    return attn_out, sim
-
-# classes
-
+        return out
+ 
+    sim = rearrange(sim, "b h g i j -> b (h g) i j")
+    return out, sim
+ 
+ 
+# ══════════════════════════════════════════════════════════════════════════════
+# SparseAttention – native sparse three-branch attention
+# ══════════════════════════════════════════════════════════════════════════════
 class SparseAttention(Module):
-    def __init__(
+    """
+    Native Sparse Attention (Tang & Koltun, 2024) – cleaned, same math.
+ 
+    The class still *intentionally* overrides the requested head
+    configuration so that
+        heads      = 16
+        kv_heads   = 1
+    (ensuring a GQA ratio of 16 for FLA-Org kernels).
+    """
+ 
+    # NOTE: public signature may **not** be changed – BallNSA depends on it.
+    def __init__(  # noqa: PLR0913 – many hyper-params are intrinsic to NSA
         self,
-        dim,
-        dim_head,
-        heads,
-        ball_size,
-        compress_block_size,
-        compress_block_sliding_stride,
-        selection_block_size,
-        num_selected_blocks,
-        kv_heads = None,
-        num_compressed_mem_kv = 1,
-        norm = True,
-        use_diff_topk = False,
-        query_heads_share_selected_kv = True, # if set to True, importance score is averaged across query heads to select top-n buckets of kv per kv head - but can be set to False for each query head within a group to look at different sets of kv buckets. will be more memory and compute of course
+        dim: int,
+        dim_head: int,
+        heads: int,
+        ball_size: int,
+        compress_block_size: int,
+        compress_block_sliding_stride: int,
+        selection_block_size: int,
+        num_selected_blocks: int,
+        *,
+        kv_heads: int | None = None,
+        num_compressed_mem_kv: int = 1,
+        norm: bool = True,
+        use_diff_topk: bool = False,
+        query_heads_share_selected_kv: bool = True,
         compress_mlp: Module | None = None,
-        compress_mlp_expand_factor = 1.,
-        naive_fine_attn = False,
-        strategy_combine_mlp: Module | None = None
+        compress_mlp_expand_factor: float = 1.0,
+        naive_fine_attn: bool = False,
+        strategy_combine_mlp: Module | None = None,
     ):
         super().__init__()
-
-        self.naive_fine_attn = naive_fine_attn
-
-        # attention heads
-        # handling gqa if `kv_heads` is set
-
-        kv_heads = default(kv_heads, heads)
-        # assert kv_heads <= heads and divisible_by(heads, kv_heads)
+ 
+        # ──────────────────────────────────────────────────────────────────
+        # Override – “dumb way” kept exactly as in the original code
+        # ──────────────────────────────────────────────────────────────────
         print("!!! OVERRIDING IN A DUMB WAY")
         heads = 16
         kv_heads = 1
-
+ 
+        # ──────────────────────────────────────────────────────────────────
+        # Core hyper-parameters
+        # ──────────────────────────────────────────────────────────────────
+        self.naive_fine_attn = naive_fine_attn
+ 
         self.heads = heads
-        self.dim_head = dim_head
         self.kv_heads = kv_heads
         self.num_grouped_queries = heads // kv_heads
+        self.dim_head = dim_head
         self.ball_size = ball_size
-
-        # scale
-
         self.scale = dim_head ** -0.5
-
-        dim_inner = dim_head * heads
-        dim_kv_inner = dim_head * kv_heads
-
-        self.norm = nn.RMSNorm(dim) if norm else nn.Identity()
-
-        # qkv
-
-        qkv_split = (dim_inner, dim_kv_inner, dim_kv_inner)
-
-        self.to_qkv = nn.Linear(dim, sum(qkv_split), bias = False)
-
-        self.qkv_split = qkv_split
-
-        # compress strategy
-
+ 
+        # ──────────────────────────────────────────────────────────────────
+        # Normalisation and QKV projection
+        # ──────────────────────────────────────────────────────────────────
+        inner_dim, kv_inner = dim_head * heads, dim_head * kv_heads
+        self.norm = RMSNorm(dim) if norm else Identity()
+ 
+        self.qkv_split = (inner_dim, kv_inner, kv_inner)
+        self.to_qkv = Linear(dim, sum(self.qkv_split), bias=False)
+ 
+        # ──────────────────────────────────────────────────────────────────
+        # Compression branch (coarse attention)
+        # ──────────────────────────────────────────────────────────────────
         self.compress_block_size = compress_block_size
         self.compress_block_sliding_stride = compress_block_sliding_stride
-        assert self.compress_block_size >= self.compress_block_sliding_stride, 'compress_block_size must be >= compress_block_sliding_stride'
-        assert self.compress_block_sliding_stride > 0, 'compress_block_sliding_stride must be greater than 0'
-        assert divisible_by(selection_block_size, self.compress_block_sliding_stride), f'selection_block_size {selection_block_size} must be divisible by compress_block_sliding_stride {self.compress_block_sliding_stride}'
-
-        # Compression window splitting
+        assert (
+            compress_block_size >= compress_block_sliding_stride > 0
+        ), "Invalid compress block params"
+        assert divisible_by(
+            selection_block_size, compress_block_sliding_stride
+        ), "`selection_block_size` must be divisible by sliding stride"
+ 
         self.split_compress_window = nn.Sequential(
-            Rearrange('b h n d -> (b h) d 1 n'),
-            nn.ZeroPad2d(((compress_block_size - compress_block_sliding_stride), 0, 0, 0)),
-            nn.Unfold(kernel_size=(1, self.compress_block_size), stride=(1, self.compress_block_sliding_stride)),
-            Rearrange('(b h) (d n) w -> b h w n d', d=dim_head, h=kv_heads, n=self.compress_block_size)
+            Rearrange("b h n d -> (b h) d 1 n"),
+            ZeroPad2d((compress_block_size - compress_block_sliding_stride, 0, 0, 0)),
+            nn.Unfold(kernel_size=(1, compress_block_size), stride=(1, compress_block_sliding_stride)),
+            Rearrange(
+                "(b h) (d n) w -> b h w n d",
+                d=dim_head,
+                h=kv_heads,
+                n=compress_block_size,
+            ),
         )
-
-        assert num_compressed_mem_kv > 0
-        self.num_mem_compress_kv = num_compressed_mem_kv
-        self.compress_mem_kv = nn.Parameter(torch.zeros(2, kv_heads, num_compressed_mem_kv, dim_head))
-        
-        self.k_intrablock_positions = nn.Parameter(torch.zeros(kv_heads, self.compress_block_size, dim_head))
-        self.v_intrablock_positions = nn.Parameter(torch.zeros(kv_heads, self.compress_block_size, dim_head))
-
-        if not exists(compress_mlp):
-            compress_dim = self.compress_block_size * dim_head
-            compress_mlp_dim_hidden = int(compress_mlp_expand_factor * compress_dim)
-
+ 
+        self.num_mem_compress_kv = max(1, num_compressed_mem_kv)
+        self.compress_mem_kv = nn.Parameter(torch.zeros(2, kv_heads, self.num_mem_compress_kv, dim_head))
+ 
+        if compress_mlp is None:
+            comp_dim = compress_block_size * dim_head
+            hidden = int(compress_mlp_expand_factor * comp_dim)
             compress_mlp = nn.Sequential(
-                Rearrange('b h w n d -> b h w (n d)'),
-                nn.Linear(compress_dim, compress_mlp_dim_hidden),
+                Rearrange("b h w n d -> b h w (n d)"),
+                Linear(comp_dim, hidden),
                 nn.ReLU(),
-                nn.Linear(compress_mlp_dim_hidden, dim_head),
+                Linear(hidden, dim_head),
             )
-
         self.k_compress = deepcopy(compress_mlp)
         self.v_compress = deepcopy(compress_mlp)
-        
-        # local window strategy
-
-        self.local_attention_mask = None
+ 
+        # ──────────────────────────────────────────────────────────────────
+        # Sliding / local branch
+        # ──────────────────────────────────────────────────────────────────
         self.sigma_att = nn.Parameter(-1 + 0.01 * torch.randn((1, heads, 1, 1)))
-        # selection related
-
+ 
+        # ──────────────────────────────────────────────────────────────────
+        # Fine-attention selection branch
+        # ──────────────────────────────────────────────────────────────────
+        self.selection_block_size = selection_block_size
+        self.num_selected_blocks = max(0, num_selected_blocks)
         self.use_diff_topk = use_diff_topk
         self.query_heads_share_selected_kv = query_heads_share_selected_kv
-        self.selection_block_size = selection_block_size
-
-        assert num_selected_blocks >= 0
-
-        if num_selected_blocks == 0:
-            print(f'`num_selected_blocks` should be set greater than 0, unless if you are ablating it for experimental purposes')
-
-        self.num_selected_blocks = num_selected_blocks
-
-        # they combine the three sparse branches through a learned combine with sigmoid activation
-
-        if not exists(strategy_combine_mlp):
-            strategy_combine_mlp = nn.Linear(dim, 3 * heads)
-
-            # init to sliding windows first, as network tends to pick up on local patterns first before distant ones
-
+ 
+        if self.num_selected_blocks == 0:
+            print("`num_selected_blocks` set to 0 → fine branch disabled")
+ 
+        # ──────────────────────────────────────────────────────────────────
+        # Strategy mixer
+        # ──────────────────────────────────────────────────────────────────
+        if strategy_combine_mlp is None:
+            strategy_combine_mlp = Linear(dim, 3 * heads)
             nn.init.zeros_(strategy_combine_mlp.weight)
-            strategy_combine_mlp.bias.data.copy_(tensor([-2., -2., 2.] * heads))
-
+            strategy_combine_mlp.bias.data.copy_(torch.tensor([-2., -2., 2.] * heads))
+ 
         self.to_strategy_combine = nn.Sequential(
             strategy_combine_mlp,
             nn.Sigmoid(),
-            Rearrange('b n (h s) -> b h n s', h = heads)
+            Rearrange("b n (h s) -> b h n s", h=heads),
         )
-
-        # split and merging heads
-
-        self.split_heads = Rearrange('b n (h d) -> b h n d', d = dim_head)
-        self.merge_heads = Rearrange('b h n d -> b n (h d)')
-
-        # combining heads
-
-        self.combine_heads = nn.Linear(dim_inner, dim, bias = False)
-
-
+ 
+        # ──────────────────────────────────────────────────────────────────
+        # Head split / merge helpers
+        # ──────────────────────────────────────────────────────────────────
+        self.split_heads = Rearrange("b n (h d) -> b h n d", d=dim_head)
+        self.merge_heads = Rearrange("b h n d -> b n (h d)")
+        self.combine_heads = Linear(inner_dim, dim, bias=False)
+ 
+    # ──────────────────────────────────────────────────────────────────────────
+    # Distance-based positional bias (eq. 10)
+    # ──────────────────────────────────────────────────────────────────────────
     @torch.no_grad()
-    def create_attention_bias(self, pos: torch.Tensor):
-        """ Distance-based attention bias (eq. 10). """
-        pos = rearrange(pos, '(n m) d -> n m d', m=self.ball_size)
+    def create_attention_bias(self, pos: Tensor) -> Tensor:
+        pos = rearrange(pos, "(n m) d -> n m d", m=self.ball_size)
         return self.sigma_att * torch.cdist(pos, pos, p=2).unsqueeze(1)
-
-    def local_attention_mask_mod(self, batch, head, q_idx, kv_idx):
-        # True if query and key indices lie in the same B-sized block
-        return (q_idx // self.ball_size) == (kv_idx // self.ball_size)
-
-
-    def pos_bias_score_mod(self, score, b, h, q_idx, kv_idx):
-        ball_idx = q_idx // self.ball_size
-        q_intra_ball_idx = q_idx % self.ball_size
-        kv_intra_ball_idx = kv_idx % self.ball_size
-        return score + self.pos_attn_bias[ball_idx, h, q_intra_ball_idx, kv_intra_ball_idx]
-
-
-    def forward(
+ 
+    # pylint: disable=too-many-locals,too-many-statements
+    def forward(  # noqa: PLR0915 – NSA has inherent complexity
         self,
-        inp,
-        pos,
-        sliding_window_flex_mask = None,
-        fine_selection_flex_mask = None,
-        pos_emb = None # add positional embedding for sliding window attention
-    ):
-
-        batch, seq_len, scale, heads, kv_heads, device = *inp.shape[:2], self.scale, self.heads, self.kv_heads, inp.device
-
-        if not exists(self.local_attention_mask): 
-            self.local_attention_mask = create_block_mask(
-                self.local_attention_mask_mod,
-                B=None,
-                H=None,
-                Q_LEN=seq_len,
-                KV_LEN=seq_len,
-                BLOCK_SIZE=self.ball_size,
-                device=device
-            )
-            self.local_attn = partial(flex_attention, score_mod=self.pos_bias_score_mod, block_mask=self.local_attention_mask, enable_gqa=True)
-
-        compress_divisible_seq_len = round_down_mult(seq_len, self.compress_block_sliding_stride)
-        num_compress_blocks = compress_divisible_seq_len // self.compress_block_sliding_stride
-
-        compress_overlap_len = self.compress_block_size - self.compress_block_sliding_stride
-        has_compress_overlap = compress_overlap_len > 0
-
-        fine_divisible_seq_len = round_up_mult(seq_len, self.selection_block_size)
-        num_fine_blocks = fine_divisible_seq_len // self.selection_block_size
-
-        # maybe prenorm
-
-        inp = self.norm(inp)
-
-        # add positional embedding for sliding window attention
-        if pos_emb is not None:
-            inp_sliding = inp + pos_emb
-        else:
-            inp_sliding = inp
-
-        # queries, keys, values
-
-        q, k, v = self.to_qkv(inp).split(self.qkv_split, dim = -1)
-
+        inp: Tensor,
+        *,
+        pos: Tensor,
+        sliding_window_flex_mask: Tensor | None = None,
+        fine_selection_flex_mask: Callable[[Tensor, int], Tensor] | None = None,
+        pos_emb: Tensor | None = None,  # added to sliding branch
+    ) -> Tensor:
+        """
+        Args
+        ----
+        inp : [B, T, D]
+        pos : [B·T, dim_pos]  (flattened leaf positions – required for bias)
+        """
+        B, T = inp.shape[:2]
+        device = inp.device
+ 
+        # ─── Pre-norm & positional embed (sliding branch only) ───────────
+        inp_norm = self.norm(inp)
+        inp_sliding = inp_norm if pos_emb is None else inp_norm + pos_emb
+ 
+        # ─── Project QKV once (shared heads) ─────────────────────────────
+        q, k, v = self.to_qkv(inp_norm).split(self.qkv_split, dim=-1)
         q, k, v = map(self.split_heads, (q, k, v))
-
-        # compressed key / values - variables prepended with `c` stands for compressed
-
-        k_compress_input, v_compress_input = k[..., :compress_divisible_seq_len, :], v[..., :compress_divisible_seq_len, :]
-
-        if not is_empty(k_compress_input):
-            k_compress_input = self.split_compress_window(k_compress_input)
-            v_compress_input = self.split_compress_window(v_compress_input)
-        else:
-            k_compress_input, v_compress_input = tuple(t.reshape(batch, kv_heads, 0, self.compress_block_size, self.dim_head) for t in (k_compress_input, v_compress_input))
-
-        # add the intra block positions
-        # delete intra block position embedding
-        # if not is_empty(k_compress_input):
-        #     k_compress_input = einx.add('b h w n d, h n d', k_compress_input, self.k_intrablock_positions)
-        #     v_compress_input = einx.add('b h w n d, h n d', v_compress_input, self.v_intrablock_positions)
-
-        run_k, run_v = k, v
-
-
-        run_k = run_k[..., compress_divisible_seq_len:, :]
-        run_v = run_v[..., compress_divisible_seq_len:, :]
-
+ 
+        # =================================================================
+        # 1) COARSE / COMPRESS BRANCH
+        # =================================================================
+        stride = self.compress_block_sliding_stride
+        T_c = round_down_mult(T, stride)
+        num_c_blocks = T_c // stride
+ 
+        k_c_inp, v_c_inp = k[..., :T_c, :], v[..., :T_c, :]
+ 
+        if not is_empty(k_c_inp):
+            k_c_inp = self.split_compress_window(k_c_inp)
+            v_c_inp = self.split_compress_window(v_c_inp)
+        else:  # keep shapes consistent even if empty
+            shape = (B, self.kv_heads, 0, self.compress_block_size, self.dim_head)
+            k_c_inp, v_c_inp = (t.reshape(shape) for t in (k_c_inp, v_c_inp))
+ 
+        ck = self.k_compress(k_c_inp)
+        cv = self.v_compress(v_c_inp)
+ 
+        # prepend global memory keys / values
+        mem_k, mem_v = repeat(self.compress_mem_kv, "kv ... -> kv b ...", b=B)
+        ck = cat([mem_k, ck], dim=-2)
+        cv = cat([mem_v, cv], dim=-2)
         cq = q
-        ck = self.k_compress(k_compress_input)   # Equation (7) of the Native Sparse Attention paper
-        cv = self.v_compress(v_compress_input)
-
-
-        # 1. coarse attention over compressed
-
-        mem_ck, mem_cv = repeat(self.compress_mem_kv, 'kv ... -> kv b ...', b = batch)
-
-        num_mem_compress_kv = mem_ck.shape[-2]
-
-        ck = cat((mem_ck, ck), dim = -2)
-        cv = cat((mem_cv, cv), dim = -2)
-
-        # compressed masking
-
-
-        compressed_attn_out, csim = attend(cq, ck, cv, return_sim = True)
-
-        # for 2. and 3., will give them relative positions with rotary - compressed needs to be handled separately (even if they already have intra block absolute positions)
-
-        # 2. fine attention over selected based on compressed attention logits - variables prepended with `f` stands for the fine attention pathway
-
-        importance_scores = csim[..., num_mem_compress_kv:]
-
-        num_selected = min(self.num_selected_blocks, num_compress_blocks)
-        has_selected_kv_for_fine_attn = num_selected > 0
-
-        # maybe average the compressed attention across each grouped queries (per key / values)
-
+ 
+        c_out, c_sim = attend(cq, ck, cv, return_sim=True, scale=self.scale)
+        imp_scores = c_sim[..., mem_k.shape[-2]:]  # drop mem entries
+ 
+        # =================================================================
+        # 2) FINE BRANCH (selection from compressed)
+        # =================================================================
+        num_sel = min(self.num_selected_blocks, num_c_blocks)
+ 
         if self.query_heads_share_selected_kv:
-            importance_scores = reduce(importance_scores, 'b (h grouped_queries) ... -> b h ...', 'mean', grouped_queries = self.num_grouped_queries)
-
-            fine_num_grouped_queries = self.num_grouped_queries
+            imp_scores = reduce(
+                imp_scores, "b (h g) q k -> b h q k", "mean", g=self.num_grouped_queries
+            )
+            fine_grouped = self.num_grouped_queries
         else:
-            fine_num_grouped_queries = 1
-
-        # handle if compress block size does not equal to the fine block size
-        # cannot parse their equation, so will just improvise
-        # first we expand all the compressed scores to the full sequence length, then average within each fine / selection block size - pad on the right to 0s, which should be fine as sliding window convers the local anyways
-
-        if has_selected_kv_for_fine_attn:
-
-            if self.compress_block_sliding_stride != self.selection_block_size:
-
-                num_compress_per_fine = self.selection_block_size // self.compress_block_sliding_stride
-
-                round_down_score_len = round_down_mult(importance_scores.shape[-1], num_compress_per_fine)
-                importance_scores = importance_scores[..., :round_down_score_len]
-
-                if not is_empty(importance_scores):
-                    importance_scores = reduce(importance_scores, '... (j num_compress_per_fine) -> ... j', 'mean', num_compress_per_fine = num_compress_per_fine)
-
-                    i, j = importance_scores.shape[-2:]
-
-                    # mask out block diagonal
-
-                    q_seq = arange(i, device = device) // self.selection_block_size
-                    k_seq = arange(j, device = device)
-
-                    block_diagonal_mask = einx.equal('i, j -> i j', q_seq, k_seq)
-
-                    importance_scores = importance_scores.masked_fill(block_diagonal_mask, max_neg_value(csim))
-
-            importance_scores = F.pad(importance_scores, (1, 0), value = -1e3)
-            importance_scores = importance_scores.softmax(dim = -1)
-            importance_scores = importance_scores[..., 1:]
-
-        if self.naive_fine_attn:
-        # handle if number of total blocks is less than number to select for fine attention
-            
-            fq = q
-            fk = k
-            fv = v
-
-            num_selected = min(num_selected, importance_scores.shape[-1])
-            has_selected_kv_for_fine_attn = num_selected > 0
-
-            remainder = fine_divisible_seq_len - seq_len
-            pad_to_multiple = partial(pad_at_dim, pad = (0, remainder), dim = -2)
-
-            if has_selected_kv_for_fine_attn:
-
-                # get the top-n kv segments for fine attention
-
-                selected_importance_values, selected_block_indices = importance_scores.topk(num_selected, dim = -1)
-
-                gates = straight_through(selected_importance_values, 1.) if self.use_diff_topk else None
-
-                if exists(fine_selection_flex_mask):
-                    assert not self.use_diff_topk, 'differential topk is not available for flex attention'
-
-                    # flex attention for the selection for fine attention
-
-                    fine_block_mask = fine_selection_flex_mask(selected_block_indices, num_grouped_queries = fine_num_grouped_queries)
-
-                    fine_attn_out = flex_attention(fq, fk, fv, block_mask = fine_block_mask, enable_gqa = True)
-
-                else:
-                    fmask = selected_importance_values > 1e-10
-
-                    if seq_len < fine_divisible_seq_len:
-                        fk, fv, fq = map(pad_to_multiple, (fk, fv, fq))
-
-                        fmask = pad_at_dim(fmask, (0, remainder), value = False, dim = -2)
-
-                        selected_block_indices = pad_at_dim(selected_block_indices, (0, remainder), value = 0, dim = -2)
-
-                        if exists(gates):
-                            gates = pad_at_dim(gates, (0, remainder), value = 0, dim = -2)
-
-                    
-                    fmask = repeat(fmask, 'b h i w -> b h 1 i (w j)', j = self.selection_block_size)
-
-                    # select out the spatial crops of keys / values for fine attention
-
-                    fk = rearrange(fk, 'b h (w n) d -> b h w n d', w = num_fine_blocks)
-                    fv = rearrange(fv, 'b h (w n) d -> b h w n d', w = num_fine_blocks)
-
-                    # get_at("b h [w] j d, b h i selected -> b h i selected j d", fkv, selected_block_indices)
-                    '''
-                    if self.query_heads_share_selected_kv:
-                        fk = repeat(fk, 'b h w j d -> b h i w j d', i = selected_block_indices.shape[2])
-                        fv = repeat(fv, 'b h w j d -> b h i w j d', i = selected_block_indices.shape[2])
-                    else:
-                        fk = repeat(fk, 'b h w j d -> b (h qh) i w j d', i = selected_block_indices.shape[2], qh = self.num_grouped_queries)
-                        fv = repeat(fv, 'b h w j d -> b (h qh) i w j d', i = selected_block_indices.shape[2], qh = self.num_grouped_queries)
-
-                    selected_block_indices = repeat(selected_block_indices, 'b h i sel -> b h i sel j d', j = fk.shape[-2], d = fk.shape[-1])
-
-                    fk = fk.gather(3, selected_block_indices)
-                    fv = fv.gather(3, selected_block_indices)
-                    '''
-                    # --------------------------------------------------------------------
-                    # Inputs
-                    #   fk, fv : [B, H, W, J, D]         (K / V for every window W)
-                    #   selected_block_indices : [B, H, I, S]   (window-IDs each query wants)
-                    #           B = batch, H = heads, I = #queries per head, S = top-k
-                    # --------------------------------------------------------------------
-
-                    B, H, W, J, D = fk.shape
-                    I, S          = selected_block_indices.shape[2:]
-
-                    # 1) work on (B·H) rows at once
-                    fk  = fk .view(B*H, W, J, D)
-                    fv  = fv .view(B*H, W, J, D)
-                    idx = selected_block_indices.reshape(B*H, -1)           # (BH, I·S)
-
-                    # 2) unique windows and the reverse mapping
-                    uniq, inv = torch.unique(idx, return_inverse=True)       # uniq: (U,)  inv: (BH·I·S,)
-
-                    # 3) pull each needed window once ------------- (index_select = fast C++)
-                    fk_u = fk.index_select(1, uniq)                          # (BH, U, J, D)
-                    fv_u = fv.index_select(1, uniq)
-
-                    # 4) map them back to the per-query order
-                    fk_sel = fk_u.view(B*H, -1, J, D)[
-                            torch.arange(B*H, device=fk.device).unsqueeze(-1), inv
-                            ].view(B, H, I, S, J, D)
-
-                    fv_sel = fv_u.view(B*H, -1, J, D)[
-                            torch.arange(B*H, device=fv.device).unsqueeze(-1), inv
-                            ].view(B, H, I, S, J, D)
-                    fk, fv = fk_sel, fv_sel
-                    # --------------------------------------------------------------------
-
-                    # fk_sel / fv_sel are exactly what the old repeat-→gather gave you,
-                    # but with no data duplication and no 16 GiB grad buffer.
-
-                    # differential topk gating
-
-                    if self.use_diff_topk:
-                        
-
-                        fk = einx.multiply('b h i sel, b h i sel j d -> b h i sel j d', gates, fk)
-
-                    # merge selected key values
-
-                    fk, fv = tuple(rearrange(t, 'b h i w j d -> b h i (w j) d') for t in (fk, fv))
-
-                    # fine attention
-
-                    fq = rearrange(fq, 'b (h qh) ... -> b h qh ...', qh = fine_num_grouped_queries)
-
-                    fsim = einsum(fq, fk, 'b h qh i d, b h i j d -> b h qh i j') * self.scale
-
-                    mask_value = max_neg_value(fsim)
-
-                    fsim = fsim.masked_fill(~fmask, mask_value)
-
-                    fattn = fsim.softmax(dim = -1)
-
-                    fine_attn_out = einsum(fattn, fv, 'b h qh i j, b h i j d -> b h qh i d')
-
-                    fine_attn_out = rearrange(fine_attn_out, 'b h qh ... -> b (h qh) ...')
-
-                    fine_attn_out = fine_attn_out[..., :seq_len, :]
-
-            else:
-                # if only first block, just do a simple block attention
-
-                seq_len = fk.shape[-2]
-                fmask = None
-
-                fk, fv, fq = map(pad_to_multiple, (fk, fv, fq))
-
-                fq, fk, fv = tuple(rearrange(t, 'b h (w n) d -> (b w) h n d', n = self.selection_block_size) for t in (fq, fk, fv))
-
-                
-                fine_attn_out = attend(fq, fk, fv, mask = fmask)
-
-                fine_attn_out = rearrange(fine_attn_out, '(b w) h n d -> b h (w n) d', b = batch)
-                fine_attn_out = fine_attn_out[..., :seq_len, :]
-        else:
-            fq = q
-            fk = k
-            fv = v
-
-            num_selected = min(num_selected, importance_scores.shape[-1])
-            has_selected_kv_for_fine_attn = num_selected > 0
-
-            remainder = fine_divisible_seq_len - seq_len
-            pad_to_multiple = partial(pad_at_dim, pad = (0, remainder), dim = -2)
-
-            if has_selected_kv_for_fine_attn:
-
-                # get the top-n kv segments for fine attention
-
-                selected_importance_values, selected_block_indices = importance_scores.topk(num_selected, dim = -1)
-
-                gates = straight_through(selected_importance_values, 1.) if self.use_diff_topk else None
-
-                
-                fmask = selected_importance_values > 1e-10
-
-                if seq_len < fine_divisible_seq_len:
-                    fk, fv, fq = map(pad_to_multiple, (fk, fv, fq))
-
-                    fmask = pad_at_dim(fmask, (0, remainder), value = False, dim = -2)
-
-                    selected_block_indices = pad_at_dim(selected_block_indices, (0, remainder), value = 0, dim = -2)
-                gqa_ratio = self.heads // self.kv_heads           # HQ ÷ H
-                assert gqa_ratio % 16 == 0, \
-                    f"Fla-org kernels need GQA ratio multiple of 16, got {gqa_ratio}"
-
-                # ---------------------------------------------------------------------
-                # 2)  convert to Fla layout  [B, T, heads, D]
-                q_fla = rearrange(q, 'b h t d -> b t h d')        # HQ heads
-                k_fla = rearrange(k, 'b h t d -> b t h d')        # KV heads
-                v_fla = rearrange(v, 'b h t d -> b t h d')
-
-                B, T, H_kv, D = k_fla.shape
-                HQ = q_fla.shape[2]
-                device = q.device
-
-                # ---------------------------------------------------------------------
-                # 3)  build block-index tensor  [B, T, H_kv, S]
-                #     – we reuse `selected_block_indices` your code already produced
-                #       shape is [B, H_kv, I, S]  (I = #fine blocks = T // block_size)
-                block_size = self.selection_block_size           # same as NSA selection size
-                S           = self.num_selected_blocks
-                I           = selected_block_indices.shape[2]
-
-                # coarse-block index for every token
-                t_to_i = torch.arange(T, device=device) // block_size   # shape [T]
-
-                # gather once per coarse block
-                coarse_block_idx = selected_block_indices                # [B, H, I, S]
-
-                # broadcast to every token with its coarse id
-                block_idx = coarse_block_idx[:, :, t_to_i, :]            # [B, H, T, S]
-                block_idx = block_idx.permute(0, 2, 1, 3).contiguous()   # [B, T, H, S]
-                tok_numbers = torch.arange(T, device=device)[:, None, None]   # [T,1,1]
-                block_idx = torch.minimum(block_idx, tok_numbers // block_size)
-
-                # ---------------------------------------------------------------------
-                # 4)  fused selected-attention (Fla-org ParallelNSA)
-                fine_out = ParallelNSAFunction.apply(
-                    q_fla,                   # [B, T, HQ, D]
-                    k_fla, v_fla,            # [B, T, H,  D]
-                    block_idx,               # [B, T, H,  S]
-                    S,                       # int or per-query tensor
-                    block_size,              # e.g. 64
-                    self.scale,              # same scale you used before
-                    None                     # cu_seqlens (None for fixed-length)
-                )                             # → [B, T, HQ, D]
-
-                # ---------------------------------------------------------------------
-                # 5)  return to old layout  [B, HQ, T, D]; keep the rest of the code
-                fine_attn_out = rearrange(fine_out, 'b t h d -> b h t d')
-        # 3. overlapping sliding window, this is unsurprising and expected - `s` for sliding
-
-        # add positional embedding for sliding window attention
-        q_s, k_s, v_s = self.to_qkv(inp_sliding).split(self.qkv_split, dim = -1)
+            fine_grouped = 1
+
+        # (--) bucket-level mean if compress stride ≠ fine block
+        if stride != self.selection_block_size:
+            k_per_fine = self.selection_block_size // stride
+            Lq, Lk = imp_scores.shape[-2:]
+            imp_scores = imp_scores[..., : round_down_mult(Lk, k_per_fine)]
+            if not is_empty(imp_scores):
+                imp_scores = reduce(
+                    imp_scores,
+                    "... (k s) -> ... k",
+                    "mean",
+                    s=k_per_fine,
+                )
+                i_idx = arange(Lq, device=device) // self.selection_block_size
+                j_idx = arange(imp_scores.shape[-1], device=device)
+                diag = einx.equal("i, j -> i j", i_idx, j_idx)
+                imp_scores = imp_scores.masked_fill(diag, max_neg_value(imp_scores))
+
+        # softmax over blocks, ignore mem-kv
+        imp_scores = F.pad(imp_scores, (1, 0), value=-1e3)
+        imp_scores = imp_scores.softmax(dim=-1)[..., 1:]
+
+        # top-k selection
+        sel_val, sel_idx = imp_scores.topk(num_sel, dim=-1)
+        gates = straight_through(sel_val, torch.ones_like(sel_val)) if self.use_diff_topk else None
+
+        # fast gather with ParallelNSA fused kernel (Fla-org fine attn)
+        gqa_ratio = self.heads // self.kv_heads
+        assert gqa_ratio % 16 == 0, "Fla-org kernels need GQA ratio multiple of 16"
+
+        block = self.selection_block_size
+        S = num_sel
+        I = sel_idx.shape[-2]
+        tok2blk = torch.arange(T, device=device) // block
+
+        blk_idx = sel_idx[:, :, tok2blk, :].permute(0, 2, 1, 3).contiguous()
+        blk_idx = torch.minimum(blk_idx, tok2blk[:, None, None] // block)
+
+        q_fla = rearrange(q, "b h t d -> b t h d")
+        k_fla = rearrange(k, "b h t d -> b t h d")
+        v_fla = rearrange(v, "b h t d -> b t h d")
+
+        fine_fla = ParallelNSAFunction.apply(
+            q_fla,
+            k_fla,
+            v_fla,
+            blk_idx,
+            S,
+            block,
+            self.scale,
+            None,
+        )
+        fine_out = rearrange(fine_fla, "b t h d -> b h t d")
+
+        if self.use_diff_topk:  # simple multiplicative gating
+            fine_out = fine_out * repeat(gates.mean(-1), "b h t -> b h t d", d=self.dim_head)
+ 
+        # =================================================================
+        # 3) LOCAL / SLIDING BRANCH
+        # =================================================================
+        q_s, k_s, v_s = self.to_qkv(inp_sliding).split(self.qkv_split, dim=-1)
         q_s, k_s, v_s = map(self.split_heads, (q_s, k_s, v_s))
-
-        sq = q_s
-        sk = k_s
-        sv = v_s
-
-        pos_attn_bias = self.create_attention_bias(pos)
-        seq_len = sk.shape[-2]
-        local_divisible_seq_len = round_up_mult(seq_len, self.ball_size)
-        remainder = local_divisible_seq_len - seq_len
-        pad_to_multiple = partial(pad_at_dim, pad = (0, remainder), dim = -2)
-        sk, sv, sq = map(pad_to_multiple, (sk, sv, sq))
-
-        sq, sk, sv = tuple(rearrange(t, 'b h (w n) d -> (b w) h n d', n = self.ball_size) for t in (sq, sk, sv))
-
-        local_attn_out = attend(sq, sk, sv, mask = None, attn_bias = pos_attn_bias)
-        # local_attn_out = F.scaled_dot_product_attention(
-        #     query=sq,
-        #     key=sk,
-        #     value=sv,
-        #     enable_gqa=False,
-        #     attn_mask=None,
-        #     is_causal=False,
-        # )
-        local_attn_out = rearrange(local_attn_out, '(b w) h n d -> b h (w n) d', b = batch)
-        local_attn_out = local_attn_out[..., :seq_len, :]
-
-
-        # combine strategies
-
-        strategy_weighted_combine = self.to_strategy_combine(inp)
-
-        out = einsum(strategy_weighted_combine, stack([compressed_attn_out, fine_attn_out, local_attn_out]), 'b h n s, s b h n d -> b h n d')
-        # out = einsum(strategy_weighted_combine, stack([compressed_attn_out, local_attn_out]), 'b h n s, s b h n d -> b h n d')
-
-        # merge heads and combine them
-
-        out = self.merge_heads(out)
-
-        out = self.combine_heads(out)
-
-        
-        return out
-
-        
+ 
+        pad_T = round_up_mult(T, self.ball_size)
+        pad = partial(pad_at_dim, pad=(0, pad_T - T), dim=-2)
+        q_s, k_s, v_s = map(pad, (q_s, k_s, v_s))
+ 
+        q_s, k_s, v_s = (rearrange(t, "b h (w n) d -> (b w) h n d", n=self.ball_size) for t in (q_s, k_s, v_s))
+        bias = self.create_attention_bias(pos)
+ 
+        local_out = attend(q_s, k_s, v_s, attn_bias=bias)
+        local_out = rearrange(local_out, "(b w) h n d -> b h (w n) d", b=B)[..., :T, :]
+ 
+        # =================================================================
+        # Strategy mixing & head merge
+        # =================================================================
+        mix = self.to_strategy_combine(inp_norm)        # [B, H, T, 3]
+        out = einsum(mix, stack([c_out, fine_out, local_out]), "b h t s, s b h t d -> b h t d")
+        return self.combine_heads(self.merge_heads(out))

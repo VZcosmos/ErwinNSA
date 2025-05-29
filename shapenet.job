@@ -4,7 +4,7 @@
 #SBATCH --gpus=1
 #SBATCH --job-name=ErwinNSAShapenet
 #SBATCH --ntasks=1
-#SBATCH --cpus-per-task=9
+#SBATCH --cpus-per-task=16
 #SBATCH --time=12:00:00
 #SBATCH --output=erwin_shapenet.out
 
@@ -24,7 +24,7 @@ srun python train_shapenet.py \
  --size small \
  --model erwin_nsa \
  --data-path "../../nico_directory/shapenet_car_processed" \
- --num-epochs 80000 \
+ --num-epochs 1000 \
  --experiment 'compare-nsa-shapenet-batch-size-1' \
  --profile 0 \
  --batch-size 1 \
