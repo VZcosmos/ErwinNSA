@@ -303,7 +303,7 @@ class SparseAttention(Module):
         # they combine the three sparse branches through a learned combine with sigmoid activation
 
         if not exists(strategy_combine_mlp):
-            strategy_combine_mlp = nn.Linear(dim, 2 * heads)
+            strategy_combine_mlp = nn.Linear(dim, 3 * heads)
 
             # init to sliding windows first, as network tends to pick up on local patterns first before distant ones
 

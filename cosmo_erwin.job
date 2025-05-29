@@ -2,11 +2,11 @@
 
 #SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
-#SBATCH --job-name=train_md
+#SBATCH --job-name=ErwinNSACosmo
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=9
-#SBATCH --time=12:00:00
-#SBATCH --output=erwin_nsa_md.out
+#SBATCH --time=2:00:00
+#SBATCH --output=erwin_cosmo.out
 
 module purge
 module load 2024
@@ -19,14 +19,13 @@ source erwinplus/bin/activate
 cd experiments
 export WANDB_API_KEY=a6910fe73e66c089df72dd1ee97aef2b3c7264dd
 # export WANDB_MODE=disabled
-srun python train_md.py \
- --use-wandb 1 \
+srun python train_cosmology.py \
+ --use-wandb \
  --size small \
- --model erwin_nsa \
- --data-path "../../md_dataset" \
- --num-epochs 150000 \
- --experiment 'batch-size-1_val-5000_no-accum' \
+ --model erwin \
+ --data-path "/scratch-shared/scur2687/cosmo_dataset" \
+ --num-epochs 10000 \
+ --val-every-iter 100 \
+ --experiment 'cosmo_10k_batch_size_1' \
  --profile 0 \
  --batch-size 1 \
- --val-every-iter 500 \
- --accumulation-steps 1

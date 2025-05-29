@@ -66,13 +66,13 @@ def path_to_dir(config, dir_name):
         return os.path.join(".", dir_name)
 
 
-def save_checkpoint(model, optimizer, scheduler, config, val_loss, global_step, accumulation_steps=1):
+def save_checkpoint(model, optimizer, scheduler, config, val_loss, global_step):
     checkpoint = {
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
         'scheduler_state_dict': scheduler.state_dict() if scheduler is not None else None,
         'val_loss': val_loss,
-        'global_step': global_step // accumulation_steps,
+        'global_step': global_step,
         'config': config
     }
     
@@ -86,7 +86,7 @@ def save_checkpoint(model, optimizer, scheduler, config, val_loss, global_step, 
     torch.save(checkpoint, checkpoint_path)
     
     if config.get("use_wandb", False):
-        wandb.log({"checkpoint/best_val_loss": val_loss}, step=global_step // accumulation_steps)
+        wandb.log({"checkpoint/best_val_loss": val_loss}, step=global_step)
 
 
 def load_checkpoint(model, optimizer, scheduler, config):
@@ -113,18 +113,14 @@ def train_step(model, batch, optimizer, scheduler, global_step, config, accumula
     # optimizer.zero_grad()
     stat_dict = model.training_step(batch)
     loss = stat_dict["train/loss"] / accumulation_steps
-    loss.backward()
 
-    if (global_step + 1) % accumulation_steps == 0:
-        optimizer.step()
-        if scheduler is not None:
-            scheduler.step()
-        optimizer.zero_grad()
-    stat_dict['train/lr'] = optimizer.param_groups[0]['lr']
-
+    stat_dict["train/loss"].backward()
     if global_step == 0 or global_step == 10:
         torch.cuda.memory._dump_snapshot(path_to_file(config, f"spike_{global_step}.pickle.gz"))
-
+    optimizer.step()
+    if scheduler is not None:
+        scheduler.step()
+    stat_dict['train/lr'] = optimizer.param_groups[0]['lr']
     return stat_dict
 
 
@@ -231,35 +227,8 @@ def evaluate_interactions_from_batch_md(model, batch, config, i_s=None):
 
     influences = measure_interaction_batch_md(model, vel_seq, node_type, node_positions, i_s, bs, batch)
     plot_log_distribution(influences[0], path_to_file(config, "md_influences.png"))
-    save_influence_tensor(influences[0], path_to_file(config, "md_influences_tensor.npy"))
     return (influences[0] > 0).sum().item()
 
-def measure_interaction_batch_cosmology(model, node_positions, i_s, bs, batch):
-    node_positions = node_positions.detach().clone().requires_grad_(True)
-    N, F = node_positions.shape
-    batch_idx = batch["batch_idx"]
-    influences = torch.zeros((len(i_s), N), device=node_positions.device)
-
-    for idx, j in enumerate(i_s):
-        def f(input_pos):
-            pred = model(input_pos, batch_idx=batch_idx, edge_index=batch['edge_index'])
-            return pred[j]
-        jacobian = torch.autograd.functional.jacobian(f, node_positions, create_graph=False)
-        influences[idx] = (jacobian ** 2).sum(dim=(0, 2))  
-
-    return influences
-
-def evaluate_interactions_from_batch_cosmology(model, batch, config, i_s=None):
-    batch = {k: v.cuda() for k, v in batch.items()}
-    node_positions = batch['pos']
-    bs = 1
-    if i_s is None:
-        i_s = random.sample(range(node_positions.shape[0]), 1)
-
-    influences = measure_interaction_batch_cosmology(model, node_positions, i_s, bs, batch)
-    plot_log_distribution(influences[0], path_to_file(config, "cosmo_influences.png"))
-    save_influence_tensor(influences[0], path_to_file(config, "cosmo_influences_tensor.npy"))
-    return (influences[0] > 0).sum().item()
 
 def benchmark_flops(model, data_loader, config):
     """
@@ -284,7 +253,7 @@ def count_parameters(model):
     return trainable_params, total_params
 
 
-def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_loader=None, timing_window_start=100, timing_window_size=500, dataset_type="shapenet", accumulation_steps=1):
+def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_loader=None, timing_window_start=100, timing_window_size=500, dataset_type="shapenet"):
     if config.get("use_wandb", False):
         setup_wandb_logging(model, config)
     
@@ -326,7 +295,6 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
         )
         prof.__enter__()
 
-    optimizer.zero_grad()
     while global_step < max_steps:
         iterator = tqdm(train_loader, desc=f"Training (step {global_step + 1}/{max_steps})") if use_tqdm else train_loader
         for batch in iterator:
@@ -345,15 +313,12 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
                 total_time = timing_end - timing_start
                 steps_per_second = timing_window_size / total_time
                 if config.get("use_wandb", False):
-                    wandb.log({"stats/steps_per_second": steps_per_second}, step=global_step // accumulation_steps)
+                    wandb.log({"stats/steps_per_second": steps_per_second}, step=global_step)
                 else:
                     print(f"Steps per second: {steps_per_second:.2f}")
             
-            # Add optimizer zero_grad so that gradient accumulation works correctly inside of train_step
-            stat_dict = train_step(model, batch, optimizer, scheduler, global_step, config, accumulation_steps=accumulation_steps)
-
-            if global_step == 1:
-                print(f"{accumulation_steps=}")            
+            stat_dict = train_step(model, batch, optimizer, scheduler, global_step, config)
+            
             for k, v in stat_dict.items():
                 if "lr" not in k:
                     if k not in running_train_stats:
@@ -368,11 +333,13 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
                     **{k: f"{stat_dict[k].item():.4f}" for k in loss_keys}
                 })
             else:
-                if global_step % accumulation_steps == 0:
-                    wandb.log({f"{k}": v.item() for k, v in stat_dict.items() if "lr" not in k}, step=global_step // accumulation_steps)
+                wandb.log({f"{k}": v.item() for k, v in stat_dict.items() if "lr" not in k}, step=global_step)
             
+
+            print("Global step:", global_step)
+            print("val_every_iter:", config["val_every_iter"])
             # Validation and checkpointing
-            if global_step % accumulation_steps == 0 and (global_step // accumulation_steps) % config["val_every_iter"] == 0:
+            if (global_step + 1) % config["val_every_iter"] == 0:
                 train_stats = {f"avg/{k}": v / num_train_batches for k, v in running_train_stats.items()}
                 
                 running_train_stats = {}
@@ -381,15 +348,14 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
                 val_stats = validate(model, val_loader, config)
                 current_val_loss = val_stats['avg/val/loss']
                 
-                if current_val_loss < best_val_loss and global_step // accumulation_steps == 0:
+                if current_val_loss < best_val_loss:
                     best_val_loss = current_val_loss
-                    save_checkpoint(model, optimizer, scheduler, config, best_val_loss, global_step, accumulation_steps=accumulation_steps)
+                    save_checkpoint(model, optimizer, scheduler, config, best_val_loss, global_step)
                     if not config.get("use_wandb", False):
                         print(f"New best validation loss: {best_val_loss:.4f}, saved checkpoint")
                 
                 if config.get("use_wandb", False):
-                    if global_step % accumulation_steps == 0:
-                        wandb.log({**train_stats, **val_stats, 'global_step': global_step}, step=global_step // accumulation_steps)
+                    wandb.log({**train_stats, **val_stats, 'global_step': global_step}, step=global_step)
                 else:
                     loss_keys = [k for k in val_stats.keys() if "loss" in k]
                     for k in loss_keys: 
@@ -408,8 +374,8 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
         if config.get("use_wandb", False):
             wandb.log({
                 **{f"test/{k.replace('val/', '')}": v for k, v in test_stats.items()},
-                'global_step': global_step // accumulation_steps,
-            }, step=global_step // accumulation_steps)
+                'global_step': global_step
+            }, step=global_step)
         else:
             loss_keys = [k for k in test_stats.keys() if "loss" in k]
             for k in loss_keys:
@@ -433,8 +399,6 @@ def fit(config, model, optimizer, scheduler, train_loader, val_loader, test_load
         n_influenced = evaluate_interactions_from_batch(model, next(iter(train_loader)), config)
     elif dataset_type == "md":
         n_influenced = evaluate_interactions_from_batch_md(model, next(iter(train_loader)), config)
-    elif dataset_type == "cosmology":
-        n_influenced = evaluate_interactions_from_batch_cosmology(model, next(iter(train_loader)), config)
     flops_per_second = flops_per_step * (config["num_epochs"] * len(train_loader) / runtime_seconds)
     if config.get("use_wandb", False):
         wandb.log({"stats/runtime": runtime_seconds})

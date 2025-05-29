@@ -50,6 +50,8 @@ def parse_args():
                         help="Whether to run testing")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--profile", type=int, default=0)
+    parser.add_argument("--accumulation-steps", type=int, default=1,
+                        help="Number of gradient accumulation steps")
     
     return parser.parse_args()
 
@@ -92,13 +94,13 @@ erwin_configs = {
 
 erwin_nsa_configs = {
     "small": {
-        "c_in": 64,
-        "c_hidden": 64,
-        "rotate": 0,
-        "depth": 18,
+        "c_in": 16,
+        "c_hidden": 16,
+        "rotate": 45,
+        "depth": 22,
         "num_heads": 16,
         "compress_ball_size": 32,
-        "local_ball_size": 1024,
+        "local_ball_size": 512,
         "num_selected_blocks": 16,
         "min_nsa_heads": 16,
     },
@@ -129,6 +131,8 @@ if __name__ == "__main__":
         seq_len=16,
         traj_len=10000,
     )
+    # Choose a subset of valid_dataset randomly
+    valid_dataset = torch.utils.data.Subset(valid_dataset, torch.randperm(len(valid_dataset))[:5000])
 
     test_dataset = MDDataset(
         directory=f"{args.data_path}/polymer_test",
@@ -161,6 +165,96 @@ if __name__ == "__main__":
         num_workers=16,
     )
 
+    # ###### DEBUGGING CODE ######
+    # train_batch = next(iter(train_loader))
+    # val_batch = next(iter(valid_loader))
+    # test_batch = next(iter(test_loader))
+
+    # print("--"*20)
+    # print("Training batch")
+    # for k, v in train_batch.items():
+    #     if isinstance(v, torch.Tensor):
+    #         print(f"{k}: {v.shape} ({v.dtype})")
+    #     else:
+    #         print(f"{k}: {v}")
+    # print("Samples in training set:", len(train_dataset))
+    # print("--"*20)
+    # print("Validation batch")
+    # for k, v in val_batch.items():
+    #     if isinstance(v, torch.Tensor):
+    #         print(f"{k}: {v.shape} ({v.dtype})")
+    #     else:
+    #         print(f"{k}: {v}")
+    # print("Samples in validation set:", len(valid_dataset))
+    # print("--"*20)
+    # print("Testing batch")
+    # for k, v in test_batch.items():
+    #     if isinstance(v, torch.Tensor):
+    #         print(f"{k}: {v.shape} ({v.dtype})")
+    #     else:
+    #         print(f"{k}: {v}")
+    # print("Samples in testing set:", len(test_dataset))
+    # print("--"*20)
+
+    # if args.model == "erwin":
+    #     model_config = erwin_configs[args.size]
+    # elif args.model == "erwin_nsa":
+    #     model_config = erwin_nsa_configs[args.size]
+    # else:
+    #     raise NotImplementedError(f"Unknown model: {args.model}")
+
+    # dynamics_model = model_cls[args.model](**model_config)
+    # if args.profile:
+    #     # THIS COULD SLOW DOWN TRAINING BUT IS NEEDED FOR PROFILING
+    #     print("Memory profiling enabled!")
+    #     torch.cuda.memory._record_memory_history()
+    # torch.cuda.reset_peak_memory_stats(torch.device("cuda"))
+    # model = MDModel(seq_len=train_dataset.seq_len, dynamics_model=dynamics_model).cuda()
+
+    # train_batch = {k: v.cuda() for k, v in train_batch.items()}
+    # val_batch = {k: v.cuda() for k, v in val_batch.items()}
+    # test_batch = {k: v.cuda() for k, v in test_batch.items()}
+
+    # print("--"*20)
+    # start_time = torch.cuda.Event(enable_timing=True)
+    # end_time = torch.cuda.Event(enable_timing=True)
+    # print("Model Traning Step:")
+    # torch.cuda.synchronize()
+    
+    # start_time.record()
+    # for _ in range(10):
+    #     _ = model.training_step(train_batch)
+    # torch.cuda.synchronize()
+    # end_time.record()
+    # elapsed_time = start_time.elapsed_time(end_time) / 10
+    # print(f"Average training step time: {elapsed_time:.2f} ms")
+
+    # print("\n")
+    # print("--"*20)
+    # print("Model Validation Step:")
+    # torch.cuda.synchronize()
+    # start_time.record()
+    # for _ in range(10):
+    #     _ = model.validation_step(val_batch)
+    # torch.cuda.synchronize()
+    # end_time.record()
+    # elapsed_time = start_time.elapsed_time(end_time) / 10
+    # print(f"Average validation step time: {elapsed_time:.2f} ms")
+    # print("\n")
+    # print("--"*20)
+    # print("Model Testing Step:")
+    # torch.cuda.synchronize()
+    # start_time.record()
+    # for _ in range(10):
+    #     _ = model.validation_step(test_batch)
+    # torch.cuda.synchronize()
+    # end_time.record()
+    # elapsed_time = start_time.elapsed_time(end_time) / 10
+    # print(f"Average testing step time: {elapsed_time:.2f} ms")
+
+    # import sys; sys.exit(0)  # Exit early for debugging purposes
+    # ##### END OF DEBUGGING CODE ######
+
     if args.model == "erwin":
         model_config = erwin_configs[args.size]
     elif args.model == "erwin_nsa":
@@ -187,4 +281,4 @@ if __name__ == "__main__":
     config = vars(args)
     config.update(model_config)
 
-    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 100, 300, dataset_type="md")
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 100, 300, dataset_type="md", accumulation_steps=args.accumulation_steps)

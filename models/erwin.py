@@ -195,6 +195,7 @@ class BallMSA(nn.Module):
         return (pos - pos.mean(dim=1, keepdim=True)).view(-1, dim)
 
     def forward(self, x: torch.Tensor, pos: torch.Tensor):
+        # print(f" erwin x shape: {x.shape}")
         x = x + self.pe_proj(self.compute_rel_pos(pos))
         q, k, v = rearrange(self.qkv(x), "(n m) (H E K) -> K n H m E", H=self.num_heads, m=self.ball_size, K=3)
         x = F.scaled_dot_product_attention(q, k, v, attn_mask=self.create_attention_mask(pos))
@@ -442,9 +443,12 @@ class BallNSA(nn.Module):
         # to be returned after we modify nsa
         # x = x + self.pe_proj(self.compute_rel_pos(pos))
         # print(f'input to NSA shape: {x.shape}')
+        # print(f'pos shape: {pos.shape}')
         pos_emb = self.pe_proj(self.compute_rel_pos(pos)) 
+
         if x.ndim == 2:
             x = x.unsqueeze(0)
+            # x = rearrange(x, "(B n) m -> B n m", B=)
             x = self.nsa(x, pos=pos, pos_emb=pos_emb) # add pos_emb to sliding window attention
             x = x.squeeze(0)
         else:
@@ -574,6 +578,7 @@ class NSABallformer(nn.Module):
             nn.init.constant_(m.weight, 1.0)
     
     def forward(self, node_features: torch.Tensor, node_positions: torch.Tensor, batch_idx: torch.Tensor, edge_index: torch.Tensor = None, tree_idx: torch.Tensor = None, tree_mask: torch.Tensor = None, radius: float = None, **kwargs):
+        # print(f"node_features shape: {node_features.shape}")
         with torch.no_grad():
             # if not given, build the ball tree and radius graph
             if tree_idx is None and tree_mask is None:

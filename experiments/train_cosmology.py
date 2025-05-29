@@ -9,14 +9,23 @@ from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from erwin.training import fit
-from erwin.models.erwin import ErwinTransformer
+from erwin.models.erwin import ErwinTransformer, NSABallformer
+from erwin.models.native_sparse_attention_clean import SparseAttention
 from erwin.experiments.datasets import CosmologyDataset
 from erwin.experiments.wrappers import CosmologyModel
 
 
+from collections import defaultdict
+import wandb
+def _size_mb(t): return t.numel()*t.element_size()/1e6
+def log_hook(mod, inp, out):
+    wandb.log({f"{mod.__class__.__name__}/in_MB": sum(_size_mb(x) for x in inp),
+               f"{mod.__class__.__name__}/out_MB": _size_mb(out)})
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="erwin",
+                        choices=('mpnn', 'pointtransformer', 'pointnetpp', 'erwin', 'erwin_nsa'),
                         help="Model type (mpnn, pointtransformer, erwin)")
     parser.add_argument("--data-path", type=str)
     parser.add_argument("--size", type=str, default="small",
@@ -28,8 +37,10 @@ def parse_args():
                         help="Number of training epochs")
     parser.add_argument("--batch-size", type=int, default=16,
                         help="Batch size for training")
+    parser.add_argument("--accumulation-steps", type=int, default=1)
     parser.add_argument("--use-wandb", action="store_true", default=True,
                         help="Whether to use Weights & Biases for logging")
+    parser.add_argument("--profile", type=int, default=0)
     parser.add_argument("--lr", type=float, default=5e-4,
                         help="Learning rate")
     parser.add_argument("--val-every-iter", type=int, default=500,
@@ -53,6 +64,7 @@ erwin_configs = {
         "dec_depths": [2, 2, 2],
         "strides": [2, 2, 2],
         "ball_sizes": [256, 256, 256, 256],
+        "rotate": 45,
     },
     "medium": {
         "c_in": 64,
@@ -76,8 +88,24 @@ erwin_configs = {
     },
 }
 
+erwin_nsa_configs = {
+    "small": {
+        "c_in": 32,
+        "c_hidden": 32,
+        "rotate": 45,
+        "depth": 6,
+        "num_heads": 16,
+        "compress_ball_size": 32,
+        "local_ball_size": 128,
+        "num_selected_blocks": 16,
+        "min_nsa_heads": 16,
+        "num_layers": 1,
+    },
+}
+
 model_cls = {
     "erwin": ErwinTransformer,
+    "erwin_nsa": NSABallformer,
 }
 
 
@@ -89,6 +117,8 @@ if __name__ == "__main__":
 
     if args.model == "erwin":
         model_config = erwin_configs[args.size]
+    elif args.model == "erwin_nsa":
+        model_config = erwin_nsa_configs[args.size]
     else:
         raise ValueError(f"Unknown model type: {args.model}")
 
@@ -139,6 +169,12 @@ if __name__ == "__main__":
     )
 
     dynamic_model = model_cls[args.model](**model_config)
+    if args.profile:
+        # THIS COULD SLOW DOWN TRAINING BUT IS NEEDED FOR PROFILING
+        print("Memory profiling enabled!")
+        torch.cuda.memory._record_memory_history()
+
+    torch.cuda.reset_peak_memory_stats(torch.device("cuda"))
     model = CosmologyModel(dynamic_model).cuda()
     # model = torch.compile(model)
 
@@ -148,4 +184,4 @@ if __name__ == "__main__":
     config = vars(args)
     config.update(model_config)
 
-    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 100, 200)
+    fit(config, model, optimizer, scheduler, train_loader, valid_loader, test_loader, 100, 200, dataset_type="cosmology", accumulation_steps=args.accumulation_steps)

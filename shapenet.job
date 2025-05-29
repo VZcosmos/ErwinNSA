@@ -2,11 +2,11 @@
 
 #SBATCH --partition=gpu_h100
 #SBATCH --gpus=1
-#SBATCH --job-name=ErwinNSATest
+#SBATCH --job-name=ErwinNSAShapenet
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=9
-#SBATCH --time=01:00:00
-#SBATCH --output=erwin_nsa_triton.out
+#SBATCH --time=12:00:00
+#SBATCH --output=erwin_shapenet.out
 
 module purge
 module load 2024
@@ -24,6 +24,8 @@ srun python train_shapenet.py \
  --size small \
  --model erwin_nsa \
  --data-path "../../nico_directory/shapenet_car_processed" \
- --num-epochs 6000 \
- --experiment 'shapenet_nsa__xball_deeper_larger-topk' \
- --profile 0
+ --num-epochs 80000 \
+ --experiment 'compare-nsa-shapenet-batch-size-1' \
+ --profile 0 \
+ --batch-size 1 \
+ --accumulation-steps 1

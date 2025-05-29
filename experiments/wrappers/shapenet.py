@@ -28,6 +28,7 @@ class ShapenetCarModel(nn.Module):
 
     def forward(self, node_positions, **kwargs):
         node_features = self.pos_enc(node_positions)
+        # print("shapenet node_features shape:", node_features.shape)
         return self.pred_head(self.main_model(node_features, node_positions, **kwargs))
 
     @torch.no_grad()
