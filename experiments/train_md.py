@@ -95,12 +95,12 @@ erwin_configs = {
 erwin_nsa_configs = {
     "small": {
         "c_in": 16,
-        "c_hidden": 16,
+        "c_hidden": 64,
         "rotate": 45,
-        "depth": 22,
+        "depth": 6,
         "num_heads": 16,
         "compress_ball_size": 32,
-        "local_ball_size": 512,
+        "local_ball_size": 32,
         "num_selected_blocks": 16,
         "min_nsa_heads": 16,
     },

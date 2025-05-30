@@ -24,9 +24,10 @@ srun python train_md.py \
  --size small \
  --model erwin_nsa \
  --data-path "../../md_dataset" \
- --num-epochs 150000 \
- --experiment 'batch-size-1_val-5000_no-accum' \
+ --num-epochs 50000 \
+ --experiment 'md_batch-size-1_val-5000_no-accum_depth-6' \
  --profile 0 \
  --batch-size 1 \
  --val-every-iter 500 \
- --accumulation-steps 1
+ --accumulation-steps 1 \
+ --lr 0.0005
