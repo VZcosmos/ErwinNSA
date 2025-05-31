@@ -65,6 +65,8 @@ to install `uv` run:
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
+Install the `native_sparse_attention` library following the instructions in Fla-Org's [NSA repository](https://github.com/fla-org/native-sparse-attention?tab=readme-ov-file#setup).
+
 
 ## Replicating experiments
 
@@ -93,7 +95,7 @@ A **ball tree** is a hierarchical data structure that recursively partitions poi
 
 # Contributions (TBD)
 
-* Nicolas Lapautre
-* Maria Marchenko
-* Carlos Miguel Patiño
-* Xin Zhou
+* **Nicolas Lapautre**: Downloaded the ShapeNet and Cosmology datasets.
+* **Maria Marchenko**: Implemented the NSABallformer model, benchmarked memory usage, and optimized code to fix runtime and memory issues.
+* **Carlos Miguel Patiño**: Implemented the local ball attention mechanism with position bias, generated the visualization of key-query matrices, and generated the plots and diagrams for the report.
+* **Xin Zhou**: Added the positional embedding to Erwin + NSA model, helped debug model performance on ShapeNet, ran the Erwin + NSA model and reproducibility experiment on MD dataset.
