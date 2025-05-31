@@ -96,6 +96,6 @@ A **ball tree** is a hierarchical data structure that recursively partitions poi
 # Contributions (TBD)
 
 * **Nicolas Lapautre**: Downloaded the ShapeNet and Cosmology datasets.
-* **Maria Marchenko**: Implemented the NSABallformer model, benchmarked memory usage, and optimized code to fix runtime and memory issues.
+* **Maria Marchenko**: Implemented benchmark for measuring receptive field, wrote initial Erwin + NSA implementation, debugged memory and speed bottleneck with profiler, implemented efficient selected attention (adapted fla-org triton version).
 * **Carlos Miguel Patiño**: Implemented the local ball attention mechanism with position bias, generated the visualization of key-query matrices, and generated the plots and diagrams for the report.
 * **Xin Zhou**: Added the positional embedding to Erwin + NSA model, helped debug model performance on ShapeNet, ran the Erwin + NSA model and reproducibility experiment on MD dataset.
