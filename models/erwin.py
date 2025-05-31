@@ -11,6 +11,7 @@ from typing import Literal, List
 from dataclasses import dataclass
 
 from balltree import build_balltree_with_rotations
+from .native_sparse_attention_clean import SparseAttention
 
 
 def scatter_mean(src: torch.Tensor, idx: torch.Tensor, num_receivers: int):
@@ -194,6 +195,7 @@ class BallMSA(nn.Module):
         return (pos - pos.mean(dim=1, keepdim=True)).view(-1, dim)
 
     def forward(self, x: torch.Tensor, pos: torch.Tensor):
+        # print(f" erwin x shape: {x.shape}")
         x = x + self.pe_proj(self.compute_rel_pos(pos))
         q, k, v = rearrange(self.qkv(x), "(n m) (H E K) -> K n H m E", H=self.num_heads, m=self.ball_size, K=3)
         x = F.scaled_dot_product_attention(q, k, v, attn_mask=self.create_attention_mask(pos))
@@ -377,7 +379,7 @@ class ErwinTransformer(nn.Module):
             if edge_index is None and self.embed.mp_steps:
                 assert radius is not None, "radius (float) must be provided if edge_index is not given to build radius graph"
                 edge_index = torch_cluster.radius_graph(node_positions, radius, batch=batch_idx, loop=True)
-
+        # print(f"Total number of leaf nodes in the tree: {tree_mask.sum().item()}")
         x = self.embed(node_features, node_positions, edge_index)
 
         node = Node(
@@ -400,3 +402,203 @@ class ErwinTransformer(nn.Module):
             return node.x[tree_mask][torch.argsort(tree_idx[tree_mask])]
 
         return node.x, node.batch_idx
+
+#####################################################################################
+############################### NSA #################################################
+#####################################################################################
+
+class BallNSA(nn.Module):
+    """ NSA on a ball tree. """
+    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, local_ball_size: int, num_selected_blocks: int, dimensionality: int = 3, min_nsa_heads: int = 16):
+        super().__init__()
+        self.dim = dim
+        self.num_heads = num_heads
+        self.compress_ball_size = compress_ball_size
+        self.local_ball_size = local_ball_size
+        # TEMPORARY
+        self.ball_size = local_ball_size
+        print("NSA heads", max(min_nsa_heads, dim//num_heads))
+        self.nsa = SparseAttention(dim, max(min_nsa_heads, dim//num_heads), num_heads,
+                                   self.ball_size,
+                                   compress_ball_size,
+                                   compress_ball_size // 2,
+                                   compress_ball_size, num_selected_blocks)
+        self.pe_proj = nn.Linear(dimensionality, dim)
+        self.sigma_att = nn.Parameter(-1 + 0.01 * torch.randn((1, num_heads, 1, 1)))
+
+    @torch.no_grad()
+    def create_attention_mask(self, pos: torch.Tensor):
+        """ Distance-based attention bias (eq. 10). """
+        pos = rearrange(pos, '(n m) d -> n m d', m=self.ball_size)
+        return self.sigma_att * torch.cdist(pos, pos, p=2).unsqueeze(1)
+
+    @torch.no_grad()
+    def compute_rel_pos(self, pos: torch.Tensor):
+        """ Relative position of leafs wrt the center of the ball (eq. 9). """
+        num_balls, dim = pos.shape[0] // self.ball_size, pos.shape[1]
+        pos = pos.view(num_balls, self.ball_size, dim)
+        return (pos - pos.mean(dim=1, keepdim=True)).view(-1, dim)
+
+    def forward(self, x: torch.Tensor, pos: torch.Tensor):
+        # to be returned after we modify nsa
+        # x = x + self.pe_proj(self.compute_rel_pos(pos))
+        # print(f'input to NSA shape: {x.shape}')
+        # print(f'pos shape: {pos.shape}')
+        pos_emb = self.pe_proj(self.compute_rel_pos(pos)) 
+
+        if x.ndim == 2:
+            x = x.unsqueeze(0)
+            # x = rearrange(x, "(B n) m -> B n m", B=)
+            x = self.nsa(x, pos=pos, pos_emb=pos_emb) # add pos_emb to sliding window attention
+            x = x.squeeze(0)
+        else:
+            x = self.nsa(x, pos=pos, pos_emb=pos_emb) # add pos_emb to sliding window attention
+        # print(f'output from NSA shape: {x.shape}')
+        return x
+
+
+class BallNSABlock(nn.Module):
+    def __init__(self, dim: int, num_heads: int, compress_ball_size: int, local_ball_size: int, num_selected_blocks: int, mlp_ratio: int, dimensionality: int = 3, min_nsa_heads: int = 16):
+        super().__init__()
+        self.norm1 = nn.RMSNorm(dim)
+        self.norm2 = nn.RMSNorm(dim)
+        self.BNSA = BallNSA(dim, num_heads, compress_ball_size, local_ball_size, num_selected_blocks, dimensionality, min_nsa_heads)
+        self.swiglu = SwiGLU(dim, dim * mlp_ratio)
+
+    def forward(self, x: torch.Tensor, pos: torch.Tensor):
+        x = x + self.BNSA(self.norm1(x), pos)
+        return x + self.swiglu(self.norm2(x))
+
+
+class BasicNSALayer(nn.Module):
+    def __init__(
+        self,
+        depth: int,
+        dim: int,
+        num_heads: int,
+        compress_ball_size: int,
+        local_ball_size: int,
+        num_selected_blocks: int,
+        mlp_ratio: int,
+        rotate: bool,
+        dimensionality: int = 3,
+        min_nsa_heads: int = 16,
+    ):
+        super().__init__()
+
+        self.blocks = nn.ModuleList([BallNSABlock(dim, num_heads, compress_ball_size, local_ball_size, num_selected_blocks, mlp_ratio, dimensionality, min_nsa_heads) for _ in range(depth)])
+        self.rotate = [i % 2 for i in range(depth)] if rotate else [False] * depth
+
+    def forward(self, node: Node) -> Node:
+        if len(self.rotate) > 1 and self.rotate[1]: # if rotation is enabled, it will be used in the second block
+            assert node.tree_idx_rot is not None, "tree_idx_rot must be provided for rotation"
+            tree_idx_rot_inv = torch.argsort(node.tree_idx_rot) # map from rotated to original
+
+        for rotate, blk in zip(self.rotate, self.blocks):
+            if rotate:
+                node.x = blk(node.x[node.tree_idx_rot], node.pos[node.tree_idx_rot])[tree_idx_rot_inv]
+            else:
+                node.x = blk(node.x, node.pos)
+        return node
+
+
+
+
+class NSABallformer(nn.Module):
+    """ 
+    Erwin Transformer without U-net and with Native Sparse Attention on ball tree.
+
+    Args:
+        c_in (int): number of input channels.
+        c_hidden (int): number of hidden channels. With every layer, the number of channels is multiplied by stride.
+        ball_size (List): list of ball sizes for each encoder layer (reverse for decoder).
+        enc_num_heads (List): list of number of heads for each encoder layer.
+        enc_depths (List): list of number of ErwinTransformerBlock layers for each encoder layer.
+        dec_num_heads (List): list of number of heads for each decoder layer.
+        dec_depths (List): list of number of ErwinTransformerBlock layers for each decoder layer.
+        strides (List): list of strides for each encoder layer (reverse for decoder).
+        rotate (int): angle of rotation for cross-ball interactions; if 0, no rotation.
+        decode (bool): whether to decode or not. If not, returns latent representation at the coarsest level.
+        mlp_ratio (int): ratio of SWIGLU's hidden dim to a layer's hidden dim.
+        dimensionality (int): dimensionality of the input data.
+        mp_steps (int): number of message passing steps in the MPNN Embedding.
+
+    Notes:
+        - lengths of ball_size, enc_num_heads, enc_depths must be the same N (as it includes encoder and bottleneck).
+        - lengths of strides, dec_num_heads, dec_depths must be N - 1.
+    """
+    def __init__(
+        self,
+        c_in: int,
+        c_hidden: int,
+        rotate: int,
+        depth: int,
+        num_heads: int,
+        compress_ball_size: int,
+        local_ball_size: int,
+        num_selected_blocks: int,
+        mlp_ratio: int = 4,
+        dimensionality: int = 3,
+        mp_steps: int = 3,
+        num_layers: int = 1,
+        min_nsa_heads: int = 16,
+    ):
+        super().__init__()
+        
+        self.rotate = rotate
+        self.local_ball_size = local_ball_size
+
+        self.embed = ErwinEmbedding(c_in, c_hidden, mp_steps, dimensionality)
+        
+        self.layers = nn.ModuleList()
+        for i in range(num_layers):
+            self.layers.append(BasicNSALayer(depth=depth,
+                                             dim=c_hidden,
+                                             num_heads=num_heads,
+                                             compress_ball_size=compress_ball_size,
+                                             local_ball_size=local_ball_size,
+                                             num_selected_blocks=num_selected_blocks,
+                                             rotate=rotate > 0,
+                                             mlp_ratio=mlp_ratio,
+                                             dimensionality=dimensionality,
+                                             min_nsa_heads=min_nsa_heads)
+            )
+
+        self.in_dim = c_in
+        self.out_dim = c_hidden
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Linear):
+            nn.init.trunc_normal_(m.weight, mean=0., std=0.02, a=-2., b=2.)
+            if isinstance(m, nn.Linear) and m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.LayerNorm):
+            nn.init.constant_(m.bias, 0)
+            nn.init.constant_(m.weight, 1.0)
+    
+    def forward(self, node_features: torch.Tensor, node_positions: torch.Tensor, batch_idx: torch.Tensor, edge_index: torch.Tensor = None, tree_idx: torch.Tensor = None, tree_mask: torch.Tensor = None, radius: float = None, **kwargs):
+        # print(f"node_features shape: {node_features.shape}")
+        with torch.no_grad():
+            # if not given, build the ball tree and radius graph
+            if tree_idx is None and tree_mask is None:
+                # TEMPORARY: [0], [0] as strides and ball_sizes
+                tree_idx, tree_mask, tree_idx_rot = build_balltree_with_rotations(node_positions, batch_idx, [1] * (len(self.layers) - 1), [self.local_ball_size] * len(self.layers), self.rotate)
+            if edge_index is None and self.embed.mp_steps:
+                assert radius is not None, "radius (float) must be provided if edge_index is not given to build radius graph"
+                edge_index = torch_cluster.radius_graph(node_positions, radius, batch=batch_idx, loop=True)
+
+        x = self.embed(node_features, node_positions, edge_index)
+
+        node = Node(
+            x=x[tree_idx],
+            pos=node_positions[tree_idx],
+            batch_idx=batch_idx[tree_idx],
+            tree_idx_rot=None, # will be populated in the encoder
+        )
+
+        for layer in self.layers:
+            node.tree_idx_rot = tree_idx_rot.pop(0)
+            node = layer(node)
+
+        return node.x[tree_mask][torch.argsort(tree_idx[tree_mask])]

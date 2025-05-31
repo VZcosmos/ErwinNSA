@@ -28,6 +28,7 @@ class MDModel(nn.Module):
 
     def forward(self, vel_seq, node_positions, node_type, batch_idx, **kwargs):
         node_features = self.embedding_model(vel_seq, node_type)
+        # print("md node_features shape:", node_features.shape)
         acc_stats = self.proj_model(
             self.dynamics_model(
                 node_features,

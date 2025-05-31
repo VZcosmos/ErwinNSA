@@ -1,0 +1,42 @@
+#!/bin/bash
+#SBATCH --partition=gpu_h100
+#SBATCH --gpus=1
+#SBATCH --job-name=erwin_cosmo_train
+#SBATCH --ntasks=1
+#SBATCH --output=erwin_cosmology_train.out
+#SBATCH --cpus-per-task=9
+#SBATCH --time=03:00:00
+module purge
+module load 2024
+module load Anaconda3/2024.06-1
+echo "Modules loaded."
+echo "SLURM_JOB_GPUS: $SLURM_JOB_GPUS"
+echo "SLURM_GPUS_ON_NODE: $SLURM_GPUS_ON_NODE"
+echo "SLURM_STEP_GPUS: $SLURM_STEP_GPUS"
+echo "CUDA_VISIBLE_DEVICES (set by Slurm before Python): $CUDA_VISIBLE_DEVICES"
+which nvcc
+nvcc --version # Check system CUDA toolkit version
+
+source erwinplus/bin/activate
+echo "Anaconda environment activated."
+echo "Python version: $(python --version)"
+echo "PyTorch installation check:"
+#python -c "import torch; print(f'PyTorch version: {torch.__version__}'); print(f'PyTorch CUDA version: {torch.version.cuda}'); print(f'Is CUDA available to PyTorch: {torch.cuda.is_available()}'); print(f'Device count: {torch.cuda.device_count()}')"
+
+cd experiments
+echo "Changed directory to $(pwd)"
+export WANDB_API_KEY=a6910fe73e66c089df72dd1ee97aef2b3c7264dd
+
+echo "Running srun command..."
+srun python train2_cosmology.py \
+ --use-wandb 1 \
+ --size small \
+ --model erwin \
+ --data-path "/scratch-shared/scur2687/cosmo_dataset" \
+ --num-epochs 10000 \
+ --experiment 'erwin_cosmology_batch_size_16_val_every100' \
+ --profile 0 \
+ --batch-size 16 \
+ --val-every-iter 100
+echo "srun command finished."
+
