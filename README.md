@@ -91,13 +91,6 @@ A **ball tree** is a hierarchical data structure that recursively partitions poi
     <img src="misc/ball_tree_animation.gif" alt="Ball Tree Animation" width="40%"/>
 </p>
 
-### Experiments
-Training scripts are given in [experiments](experiments). For example, to train on the molecular dynamics task:
-```
-cd experiments
-python train_md.py --use-wandb 1 --size medium --model erwin --data-path "path/to/data/dir"
-```
-
 # Contributions (TBD)
 
 * Nicolas Lapautre
