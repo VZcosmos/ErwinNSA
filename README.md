@@ -94,6 +94,10 @@ A **ball tree** is a hierarchical data structure that recursively partitions poi
 # Contributions (TBD)
 
 * Nicolas Lapautre
-* Maria Marchenko
+* Maria Marchenko:
+    * implemented number of influenced benchmark
+    * wrote initial Erwin + NSA implementation
+    * debugged memory and speed bottleneck with profiler
+    * implemented efficient selected attention (adapted fla-org triton version)
 * Carlos Miguel Patiño
 * Xin Zhou
