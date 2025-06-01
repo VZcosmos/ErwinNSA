@@ -93,7 +93,7 @@ A **ball tree** is a hierarchical data structure that recursively partitions poi
     <img src="misc/ball_tree_animation.gif" alt="Ball Tree Animation" width="40%"/>
 </p>
 
-# Contributions (TBD)
+# Contributions
 
 * **Nicolas Lapautre**: Debugged and benchmarked the ShapeNet and Cosmology datasets. Implemented visualization of shapenet cloud point and Erwin point influence. 
 * **Maria Marchenko**: Implemented benchmark for measuring receptive field, wrote initial Erwin + NSA implementation, debugged memory and speed bottleneck with profiler, implemented efficient selected attention (adapted fla-org triton version).
