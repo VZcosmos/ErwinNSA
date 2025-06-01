@@ -16,6 +16,6 @@ module load Anaconda3/2024.06-1
 # source activate erwin
 source erwin/bin/activate
 # Check whether the GPU is available
-export WANDB_API_KEY=a6910fe73e66c089df72dd1ee97aef2b3c7264dd
+export WANDB_API_KEY=""
 # export WANDB_MODE=disabled
 srun python simple_erwin_init.py

@@ -1,0 +1,35 @@
+#!/bin/bash
+#SBATCH --job-name=cosmo_download_job
+#SBATCH --output=/scratch-shared/scur2687/logs/cosmo_download_%j.out
+#SBATCH --error=/scratch-shared/scur2687/logs/cosmo_download_%j.err
+#SBATCH --time=03:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --partition=gpu_mig
+#SBATCH --gpus=1
+#SBATCH --mem=4G
+
+mkdir -p /scratch-shared/scur2687/logs
+
+echo "Starting Slurm job..."
+date
+echo "Job ID: $SLURM_JOB_ID"
+echo "Host: $(hostname)"
+
+# Updated path to your download script in your home directory
+SCRIPT_TO_RUN="/home/scur2687/erwin/download_cosmo.sh"
+
+if [ ! -f "$SCRIPT_TO_RUN" ]; then
+    echo "Error: Script $SCRIPT_TO_RUN not found."
+    exit 1
+fi
+if [ ! -x "$SCRIPT_TO_RUN" ]; then
+    echo "Error: Script $SCRIPT_TO_RUN is not executable. Run: chmod +x $SCRIPT_TO_RUN"
+    exit 1
+fi
+
+echo "Executing: $SCRIPT_TO_RUN"
+$SCRIPT_TO_RUN
+
+echo "Slurm job finished."
+date

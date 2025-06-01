@@ -25,7 +25,7 @@ echo "PyTorch installation check:"
 
 cd experiments
 echo "Changed directory to $(pwd)"
-export WANDB_API_KEY=a6910fe73e66c089df72dd1ee97aef2b3c7264dd
+export WANDB_API_KEY=""
 
 echo "Running srun command..."
 srun python train2_cosmology.py \
